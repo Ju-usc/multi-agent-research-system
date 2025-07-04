@@ -55,11 +55,6 @@ class PlanStep(BaseModel):
     complexity_hint: Optional[Literal["simple", "medium", "complex"]] = None
 
 
-class ResearchPlan(BaseModel):
-    """Complete research plan with steps"""
-    steps: List[PlanStep]
-
-
 class SubagentTask(PlanStep):
     """Executable research *micro-task* assigned to a single sub-agent."""
     tools_to_use: List[str] = Field(
@@ -101,9 +96,10 @@ class SubagentResult(BaseModel):
     """Compact summary returned by a sub-agent when done."""
     task_id: str = Field(description="ID of the task that was executed")
     summary: str = Field(description="Summary of findings from the subagent")
+    finding: str = Field(description="Detailed findings from the subagent which answers the assigned task")
     debug_info: Optional[List[str]] = Field(
         default=None,
-        description="Tool call traces for debugging"
+        description="Tool call traces for debugging only."
     )
 
 
@@ -121,7 +117,8 @@ class PlanResearch(dspy.Signature):
     (verify entities, assess scope). Output specific research tasks for subagents, not research results."""
     query: str = dspy.InputField(desc="The user's research query")
     analysis: QueryAnalysis = dspy.InputField(desc="Strategic analysis from previous step")
-    plan: ResearchPlan = dspy.OutputField(desc="Delegation plan with specific tasks for subagents")
+    reasoning: str = dspy.OutputField(desc="Reasoning about the plan")
+    plans: List[PlanStep] = dspy.OutputField(desc="A list of delegation plans with specific tasks for subagents")
     # context: str = dspy.OutputField(desc="Any Relevant or Necessary Context to pass to subagents")
 
 
@@ -131,7 +128,7 @@ class DecomposeToTasks(dspy.Signature):
     You receive the full ResearchPlan for global awareness, but **must create tasks only for `current_step`**.
     Decompose complex steps into 1-4 atomic tasks that can run concurrently for subagents. Do not invent tasks for other steps."""
     query: str = dspy.InputField(desc="The original user query for context")
-    plan: ResearchPlan = dspy.InputField(desc="Full research plan for reference")
+    plans: List[PlanStep] = dspy.InputField(desc="Full research plan for reference")
     current_step: PlanStep = dspy.InputField(desc="The single plan step to decompose now")
     completed_results: List[SubagentResult] = dspy.InputField(
         desc="Results from already completed tasks (empty list if none)"
@@ -141,9 +138,10 @@ class DecomposeToTasks(dspy.Signature):
     )
 
 class ExecuteSubagentTask(dspy.Signature):
-    """Execute a single subagent task and return the result."""
+    """Execute a single subagent task using tools and return the result."""
     task: SubagentTask = dspy.InputField(desc="The subagent task to execute")
-    result: SubagentResult = dspy.OutputField(desc="The result of the subagent task")
+    final_result: SubagentResult = dspy.OutputField(desc="The result of the subagent task")
+    reasoning: str = dspy.OutputField(desc="Reasoning about the result")
 
 class SynthesizeResults(dspy.Signature):
     """Synthesize all subagent results into a comprehensive answer to the user's query. 
@@ -151,11 +149,16 @@ class SynthesizeResults(dspy.Signature):
     patterns, and relationships discovered across all research tasks."""
     query: str = dspy.InputField(desc="The original user query")
     analysis: QueryAnalysis = dspy.InputField(desc="Initial strategic analysis")
-    plan: ResearchPlan = dspy.InputField(desc="The research plan that was executed")
-    results: List[SubagentResult] = dspy.InputField(desc="All subagent results")
-    synthesis: str = dspy.OutputField(
-        desc="Comprehensive synthesized answer addressing the user's query"
-    )
+    plans: List[PlanStep] = dspy.InputField(desc="Full research plan for reference")
+    current_step: PlanStep = dspy.InputField(desc="The single plan step to synthesize now")
+    completed_results: List[SubagentResult] = dspy.InputField(desc="Results from already completed tasks (empty list if none)")
+
+    synthesis: str = dspy.OutputField(desc="Comprehensive synthesized answer addressing the user's query")
+    key_findings: List[str] = dspy.OutputField(desc="Key findings from the synthesis")
+    reflection: str = dspy.OutputField(desc="Reflection ")
+    gap_analysis: str = dspy.OutputField(desc="Gap analysis")
+    reasoning: str = dspy.OutputField(desc="Reasoning about the synthesis")
+    next_decision: Literal["DONE", "REPLAN", "CONTINUE"] = dspy.OutputField(desc="Next decision to make")
 
 
 # ---------- Async Tool Implementations ----------
@@ -323,6 +326,14 @@ class AsyncLeadAgent(dspy.Module):
             adapter=JSONAdapter()  # Use JSON adapter for structured outputs
         )
 
+        subagent_lm = dspy.LM(
+            model=BIG_MODEL,
+            api_key=OPENROUTER_API_KEY,
+            api_base=OPENROUTER_BASE_URL,
+            temperature=TEMPERATURE,
+            max_tokens=MAX_TOKENS,
+        )
+
         # Create modules with specific LMs using context managers
         with dspy.settings.context(lm=analysis_lm):
             self.query_analyzer = dspy.ChainOfThought(AnalyzeQuery)
@@ -338,6 +349,8 @@ class AsyncLeadAgent(dspy.Module):
         with dspy.settings.context(lm=decomposer_lm):
             self.decomposer = dspy.ChainOfThought(DecomposeToTasks)
 
+        # Store subagent LM for dynamic configuration
+        self.subagent_lm = subagent_lm
 
     
     async def aforward(self, query: str):
@@ -346,71 +359,42 @@ class AsyncLeadAgent(dspy.Module):
         analysis = await self.query_analyzer.acall(query=query)
         
         # Phase 2: Create research plan
-        plan = await self.planner.acall(
+        research_plan = await self.planner.acall(
             query=query,
             analysis=analysis.analysis
         )
 
         # Phase 3: Decompose the current working step
-        current_step = plan.plan.steps.pop(0)
+        current_step = research_plan.plans.pop(0)
         allocation = await self.decomposer.acall(
             query=query,
-            plan=plan.plan,
+            plans=research_plan.plans,
             current_step=current_step,
             completed_results=[],
         )
 
         # Phase 4: run tasks with subagents in parallel
+        subagent_tasks = []
+        for task in allocation.allocation.tasks:
+            # Create task-specific subagent with dynamic configuration
+            task_tools = [TOOLS[tool] for tool in task.tools_to_use if tool in TOOLS]
+            
+            with dspy.settings.context(lm=self.subagent_lm):
+                task_subagent = dspy.ReAct(
+                    ExecuteSubagentTask,
+                    tools=task_tools,
+                    max_iters=task.tool_budget
+                )
+            
+            subagent_tasks.append(task_subagent.acall(task=task))
         
-
+        subagent_results = await asyncio.gather(*subagent_tasks, return_exceptions=True)
+        
         # Phase 5: Synthesize results and reflect results to decide next step
         # DONE, REPLAN, CONTINUE
 
-        return analysis, plan, allocation
 
 
-# ---------- Main Orchestration Function ----------
-
-async def run_research(query: str, planner_lm=None, verbose=True):
-    """
-    Main entry point for running async research.
-    
-    Args:
-        query: The research query
-        planner_lm: Optional LM for planning phase
-        verbose: Whether to print progress
-    
-    Returns:
-        Tuple of (analysis, plan)
-    """
-    # Create lead agent
-    agent = AsyncLeadAgent(planner_lm=planner_lm)
-    
-    # Run research
-    if verbose:
-        print("=== Starting Async Research ===")
-        print(f"Query: {query}\\n")
-    
-    analysis, plan, allocations = await agent.aforward(query)
-    
-    if verbose:
-        print("=== Query Analysis ===")
-        print(f"Type: {analysis.analysis.query_type}")
-        print(f"Complexity: {analysis.analysis.complexity}")
-        print(f"Main concepts: {analysis.analysis.main_concepts}")
-        print(f"Key entities: {analysis.analysis.key_entities}")
-        
-        print("\\n=== Research Plan ===")
-        print(f"Plan has {len(plan.plan.steps)} steps:")
-        for step in plan.plan.steps:
-            print(f"\\nStep {step.id}: {step.description}")
-            print(f"  Depends on: {step.depends_on}")
-    
-    return analysis, plan, allocations
+        return analysis, research_plan, allocation, subagent_results
 
 
-# ---------- Synchronous Wrapper (for backwards compatibility) ----------
-
-def run_research_sync(query: str, planner_lm=None, verbose=True):
-    """Synchronous wrapper for run_research"""
-    return asyncio.run(run_research(query, planner_lm, verbose))
