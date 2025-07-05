@@ -143,22 +143,16 @@ class ExecuteSubagentTask(dspy.Signature):
     final_result: SubagentResult = dspy.OutputField(desc="The result of the subagent task")
     reasoning: str = dspy.OutputField(desc="Reasoning about the result")
 
-class SynthesizeResults(dspy.Signature):
-    """Synthesize all subagent results into a comprehensive answer to the user's query. 
-    Focus on answering the original question completely while highlighting key findings, 
-    patterns, and relationships discovered across all research tasks."""
+class SynthesizeAndDecide(dspy.Signature):
+    """Synthesize subagent results and determine if research is complete."""
     query: str = dspy.InputField(desc="The original user query")
     analysis: QueryAnalysis = dspy.InputField(desc="Initial strategic analysis")
-    plans: List[PlanStep] = dspy.InputField(desc="Full research plan for reference")
-    current_step: PlanStep = dspy.InputField(desc="The single plan step to synthesize now")
-    completed_results: List[SubagentResult] = dspy.InputField(desc="Results from already completed tasks (empty list if none)")
-
-    synthesis: str = dspy.OutputField(desc="Comprehensive synthesized answer addressing the user's query")
-    key_findings: List[str] = dspy.OutputField(desc="Key findings from the synthesis")
-    reflection: str = dspy.OutputField(desc="Reflection ")
-    gap_analysis: str = dspy.OutputField(desc="Gap analysis")
-    reasoning: str = dspy.OutputField(desc="Reasoning about the synthesis")
-    next_decision: Literal["DONE", "REPLAN", "CONTINUE"] = dspy.OutputField(desc="Next decision to make")
+    completed_results: List[SubagentResult] = dspy.InputField(desc="All results gathered so far")
+    remaining_steps: List[PlanStep] = dspy.InputField(desc="Remaining unexecuted plan steps")
+    
+    answer: str = dspy.OutputField(desc="Current best answer to the user's query")
+    confidence_assessment: str = dspy.OutputField(desc="How well does this answer address the query? What gaps remain?")
+    next_action: Literal["DONE", "CONTINUE", "REPLAN"] = dspy.OutputField(desc="DONE if satisfied, CONTINUE next step, REPLAN if current plan won't work")
 
 
 # ---------- Async Tool Implementations ----------
