@@ -30,130 +30,54 @@ MAX_TOKENS = int(os.getenv("MAX_TOKENS", "4000"))
 
 # ---------- Data Models (Unchanged) ----------
 
-class QueryAnalysis(BaseModel):
-    """Analyze and break down the user's prompt to make sure you fully understand it."""
-    query_type: Literal["depth_first", "breadth_first", "straightforward"] = Field(
-        description="The type of query to be answered"
-    )
-    complexity: Literal["simple", "medium", "complex"] = Field(
-        description="The complexity of the query"
-    )
-    main_concepts: List[str] = Field(description="Key concepts to research")
-    key_entities: List[str] = Field(description="Important entities mentioned")
-    relationships: List[str] = Field(description="Relationships in the task")
-    notes: Optional[str] = Field(description="Any temporal or contextual constraints on the question")
-    answer_format: Optional[str] = Field(
-        description="The recommended format of the answer such as detailed report, a list of entities, an analysis of different perspectives, etc."
-    )
-
-
-class PlanStep(BaseModel):
-    """A single step in the research plan"""
-    id: int
-    description: str
-    depends_on: List[int] = Field(default_factory=list)
-    complexity_hint: Optional[Literal["simple", "medium", "complex"]] = None
-
-
-class SubagentTask(PlanStep):
-    """Executable research *micro-task* assigned to a single sub-agent."""
-    tools_to_use: List[str] = Field(
-        default=["web_search", "wikipedia_search", "parallel_search"],
-        description="Which tools this subagent should use"
-    )
-    tool_budget: int = Field(
-        default=8, 
-        ge=3, 
-        le=15,
-        description="Maximum number of tool calls allowed"
-    )
-    complexity: Literal["simple", "medium", "complex"] = Field(
-        description="The complexity of the task"
-    )
-    execution_notes: Optional[str] = None
-    expected_output: str = Field(
-        description="What kind of output/information is expected from this task"
-    )
-
-
-class TaskAllocation(BaseModel):
-    """Bundle of sub-agent tasks plus simple scheduling hints."""
-    tasks: List[SubagentTask] = Field(
-        description="List of tasks to be executed by subagents"
-    )
-    execution_strategy: str = Field(
-        description="Optional free-text scheduling guidance"
-    )
-    max_concurrent: int = Field(
-        default=4,
-        ge=1,
-        le=20,
-        description="Maximum number of concurrent subagents (Brave API safe default)"
-    )
+class SubagentTask(BaseModel):
+    """Atomic research micro-task allocated to one sub-agent in the plan."""
+    id: int = Field(description="Stable identifier used to track this task across iterations")
+    objective: str = Field(description="Crisp single-focus goal the subagent must accomplish")
+    tool_guidance: Dict[Literal["web_search", "wikipedia_search", "parallel_search"], str] = Field(description="Mapping of allowed tool names to concise usage instructions")
+    tool_budget: int = Field(default=8, ge=3, le=15, description="Maximum number of tool calls the subagent may issue")
+    expected_output: str = Field(description="Exact artifact or information the subagent must return for completion")
+    tip: Optional[str] = Field(default=None, description="Optional hint to improve quality or efficiency while executing the task")
 
 
 class SubagentResult(BaseModel):
-    """Compact summary returned by a sub-agent when done."""
-    task_id: str = Field(description="ID of the task that was executed")
-    summary: str = Field(description="Summary of findings from the subagent")
-    finding: str = Field(description="Detailed findings from the subagent which answers the assigned task")
-    debug_info: Optional[List[str]] = Field(
-        default=None,
-        description="Tool call traces for debugging only."
-    )
+    """Structured report a subagent returns after finishing its task."""
+    task_id: int = Field(description="Identifier of the task that produced this result")
+    summary: str = Field(description="High-density 2-4 sentence overview of the key findings")
+    finding: str = Field(description="Full detailed answer directly addressing the task objective")
+    debug_info: Optional[List[str]] = Field(default=None, description="Optional list of raw tool call traces for debugging")
 
+
+class ResearchMemory(BaseModel):
+    """Persisted snapshot of strategy, pending tasks and findings that survives long sessions."""
+    query: str = Field(description="Original user question guiding the research")
+    reasoning: str = Field(description="Lead agent's extended thinking and strategic rationale")
+    tasks: List[SubagentTask] = Field(description="All tasks that remain to be executed or are in progress")
+    current_findings: str = Field(default="", description="Synthesized insights accumulated so far")
 
 # ---------- DSPy Signatures (Unchanged) ----------
 
-class AnalyzeQuery(dspy.Signature):
-    """Analyze query to determine research strategy. Categorize as depth-first (one topic, multiple angles), 
-    breadth-first (multiple independent topics), or straightforward (simple fact)."""
-    query: str = dspy.InputField(desc="The user's research query")
-    analysis: QueryAnalysis = dspy.OutputField(desc="Strategic analysis for delegation planning")
-
-
 class PlanResearch(dspy.Signature):
-    """Create delegation plan for subagents based on analysis. Use tools sparingly for reconnaissance only 
-    (verify entities, assess scope). Output specific research tasks for subagents, not research results."""
-    query: str = dspy.InputField(desc="The user's research query")
-    analysis: QueryAnalysis = dspy.InputField(desc="Strategic analysis from previous step")
-    reasoning: str = dspy.OutputField(desc="Reasoning about the plan")
-    plans: List[PlanStep] = dspy.OutputField(desc="A list of delegation plans with specific tasks for subagents")
-    # context: str = dspy.OutputField(desc="Any Relevant or Necessary Context to pass to subagents")
-
-
-class DecomposeToTasks(dspy.Signature):
-    """Break down a *single* plan step into smaller, independent SubagentTasks.
-
-    You receive the full ResearchPlan for global awareness, but **must create tasks only for `current_step`**.
-    Decompose complex steps into 1-4 atomic tasks that can run concurrently for subagents. Do not invent tasks for other steps."""
-    query: str = dspy.InputField(desc="The original user query for context")
-    plans: List[PlanStep] = dspy.InputField(desc="Full research plan for reference")
-    current_step: PlanStep = dspy.InputField(desc="The single plan step to decompose now")
-    completed_results: List[SubagentResult] = dspy.InputField(
-        desc="Results from already completed tasks (empty list if none)"
-    )
-    allocation: TaskAllocation = dspy.OutputField(
-        desc="Allocation of subagent tasks with execution strategy"
-    )
+    """Generate strategic reasoning and a parallel task list for subagents from the user's query."""
+    query: str = dspy.InputField(desc="Original user question providing context")
+    current_findings: str = dspy.InputField(default="", desc="Accumulated insights from earlier iterations")
+    reasoning: str = dspy.OutputField(desc="Extended strategic thinking to persist in memory")
+    tasks: List[SubagentTask] = dspy.OutputField(desc="Complete list of SubagentTask objects to execute in parallel")
 
 class ExecuteSubagentTask(dspy.Signature):
-    """Execute a single subagent task using tools and return the result."""
-    task: SubagentTask = dspy.InputField(desc="The subagent task to execute")
-    final_result: SubagentResult = dspy.OutputField(desc="The result of the subagent task")
-    reasoning: str = dspy.OutputField(desc="Reasoning about the result")
+    """Run one subagent task with its tools and return a structured result."""
+    task: SubagentTask = dspy.InputField(desc="SubagentTask definition to be executed")
+    final_result: SubagentResult = dspy.OutputField(desc="Structured outcome generated by the subagent")
+    reasoning: str = dspy.OutputField(desc="Subagent's internal rationale for the result")
 
 class SynthesizeAndDecide(dspy.Signature):
-    """Synthesize subagent results and determine if research is complete."""
-    query: str = dspy.InputField(desc="The original user query")
-    analysis: QueryAnalysis = dspy.InputField(desc="Initial strategic analysis")
-    completed_results: List[SubagentResult] = dspy.InputField(desc="All results gathered so far")
-    remaining_steps: List[PlanStep] = dspy.InputField(desc="Remaining unexecuted plan steps")
-    
-    answer: str = dspy.OutputField(desc="Current best answer to the user's query")
-    confidence_assessment: str = dspy.OutputField(desc="How well does this answer address the query? What gaps remain?")
-    next_action: Literal["DONE", "CONTINUE", "REPLAN"] = dspy.OutputField(desc="DONE if satisfied, CONTINUE next step, REPLAN if current plan won't work")
-
+    """Aggregate results, update findings, and signal whether to finish, continue, or replan."""
+    query: str = dspy.InputField(desc="Original user question guiding evaluation")
+    current_findings: str = dspy.InputField(default="", desc="Previously synthesized insights to extend")
+    completed_results: List[SubagentResult] = dspy.InputField(desc="List of SubagentResult objects ready for synthesis")
+    synthesis: str = dspy.OutputField(desc="New consolidated insights from the completed results")
+    next_action: Literal["DONE", "CONTINUE", "REPLAN"] = dspy.OutputField(desc="Control signal indicating next step")
+    final_answer: Optional[str] = dspy.OutputField(desc="Definitive answer when next_action is DONE")
 
 # ---------- Async Tool Implementations ----------
 
@@ -286,38 +210,21 @@ TOOLS = {
 }
 
 
-# ---------- Async DSPy Modules ----------
+# ---------- Lead Agent DSPy Modules ----------
 
-class AsyncLeadAgent(dspy.Module):
-    """Lead agent that analyzes queries and creates research plans"""
-        
+class LeadAgent(dspy.Module):
+    """Lead agent: plans once, launches parallel subagents, synthesizes, then decides."""
+
     def __init__(self):
         super().__init__()
 
-        # Configure DSPy with OpenRouter
-        analysis_lm = dspy.LM(
-            model=SMALL_MODEL,
-            api_key=OPENROUTER_API_KEY,
-            api_base=OPENROUTER_BASE_URL,
-            temperature=TEMPERATURE,
-            max_tokens=MAX_TOKENS
-        )
-
+        # Language models
         planner_lm = dspy.LM(
             model=BIG_MODEL,
             api_key=OPENROUTER_API_KEY,
             api_base=OPENROUTER_BASE_URL,
             temperature=TEMPERATURE,
             max_tokens=MAX_TOKENS,
-        )
-
-        decomposer_lm = dspy.LM(
-            model=BIG_MODEL,
-            api_key=OPENROUTER_API_KEY,
-            api_base=OPENROUTER_BASE_URL,
-            temperature=TEMPERATURE,
-            max_tokens=MAX_TOKENS,
-            adapter=JSONAdapter()  # Use JSON adapter for structured outputs
         )
 
         subagent_lm = dspy.LM(
@@ -328,67 +235,48 @@ class AsyncLeadAgent(dspy.Module):
             max_tokens=MAX_TOKENS,
         )
 
-        # Create modules with specific LMs using context managers
-        with dspy.settings.context(lm=analysis_lm):
-            self.query_analyzer = dspy.ChainOfThought(AnalyzeQuery)
-
+        # Planner (can use quick reconnaissance tools if helpful)
         with dspy.settings.context(lm=planner_lm):
             planning_tools = [TOOLS["parallel_search"], TOOLS["quick_search"]]
-            self.planner = dspy.ReAct(
-                PlanResearch,
-                tools=planning_tools,
-                max_iters=3  # Minimal tool usage for planning
-            )
-        
-        with dspy.settings.context(lm=decomposer_lm):
-            self.decomposer = dspy.ChainOfThought(DecomposeToTasks)
+            self.planner = dspy.ReAct(PlanResearch, tools=planning_tools, max_iters=3)
 
-        # Store subagent LM for dynamic configuration
-        self.subagent_lm = subagent_lm
+            # Synthesizer doesn't need tools
+            self.synthesizer = dspy.ChainOfThought(SynthesizeAndDecide)
 
-    
-    async def aforward(self, query: str):
-        """Async forward pass for lead agent"""
-        # Phase 1: Analyze query
-        analysis = await self.query_analyzer.acall(query=query)
-        
-        # Phase 2: Create research plan
-        research_plan = await self.planner.acall(
-            query=query,
-            analysis=analysis.analysis
-        )
+    async def aforward(self, query: str, current_findings: str = ""):
+        """Plan → execute tasks in parallel → synthesize/decide (single cycle)."""
 
-        # Phase 3: Decompose the current working step
-        current_step = research_plan.plans.pop(0)
-        allocation = await self.decomposer.acall(
-            query=query,
-            plans=research_plan.plans,
-            current_step=current_step,
-            completed_results=[],
-        )
+        # 1. Generate plan
+        plan = await self.planner.acall(query=query, current_findings=current_findings)
 
-        # Phase 4: run tasks with subagents in parallel
-        subagent_tasks = []
-        for task in allocation.allocation.tasks:
-            # Create task-specific subagent with dynamic configuration
-            task_tools = [TOOLS[tool] for tool in task.tools_to_use if tool in TOOLS]
-            
+        # 2. Launch subagents in parallel
+        task_calls = []
+        for task in plan.tasks:
+            permitted_tools = [TOOLS[name] for name in task.tool_guidance.keys() if name in TOOLS]
             with dspy.settings.context(lm=self.subagent_lm):
-                task_subagent = dspy.ReAct(
-                    ExecuteSubagentTask,
-                    tools=task_tools,
-                    max_iters=task.tool_budget
-                )
-            
-            subagent_tasks.append(task_subagent.acall(task=task))
-        
-        subagent_results = await asyncio.gather(*subagent_tasks, return_exceptions=True)
-        
-        # Phase 5: Synthesize results and reflect results to decide next step
-        # DONE, REPLAN, CONTINUE
+                sub = dspy.ReAct(ExecuteSubagentTask, tools=permitted_tools, max_iters=task.tool_budget)
+            task_calls.append(sub.acall(task=task))
 
+        raw_results = await asyncio.gather(*task_calls, return_exceptions=True)
+        results = [r.final_result for r in raw_results if hasattr(r, "final_result")]
 
+        # 3. Synthesize and decide
+        decision = await self.synthesizer.acall(
+            query=query,
+            current_findings=current_findings,
+            completed_results=results
+        )
 
-        return analysis, research_plan, allocation, subagent_results
+        return {
+            "next_action": decision.next_action,
+            "final_answer": decision.final_answer,
+            "synthesis": decision.synthesis,
+            "results": results
+        }
 
+    async def run(self, query: str):
+        """Runs a single minimal-cycle research and returns the best available answer."""
+        outcome = await self.aforward(query)
+        return outcome["final_answer"] or outcome["synthesis"]
+    
 
