@@ -2,42 +2,90 @@
 
 A minimal multi-agent research system built with DSPy and OpenRouter, designed to reverse-engineer Claude's research capabilities.
 
-# GOAL
+## Architecture
 
-- Create the right abstraction for multi-agent research system to utilize dspy's signature
-- let the dspy optimization to automatically emerge the specific detailed instructions for each module
+This system implements a lead-subagent research pattern where:
+- **Lead Agent**: Plans research tasks, manages memory, and synthesizes results
+- **Subagents**: Execute specific research micro-tasks in parallel
+- **Memory Store**: Maintains research artifacts with lightweight summaries
 
-## Langfuse Tracing Setup
+## Features
 
-This system includes **automatic DSPy tracing** with Langfuse for observability and debugging.
+- 🔄 Async parallel execution of research tasks
+- 🧠 In-memory artifact storage with automatic summarization
+- 🔍 Web search and Wikipedia integration
+- 📊 Iterative refinement based on synthesis decisions
+- 🎯 Task-specific tool guidance and budgets
 
-### Quick Setup (following official docs):
+## BrowseComp Evaluation
 
-1. **Install dependencies:**
-   ```bash
-   uv sync
-   ```
+Evaluate the multi-agent research system on OpenAI's BrowseComp dataset:
 
-2. **Set environment variables:**
-   ```bash
-   export LANGFUSE_PUBLIC_KEY="pk-lf-..."
-   export LANGFUSE_SECRET_KEY="sk-lf-..."
-   export LANGFUSE_HOST="https://cloud.langfuse.com"
-   ```
+### Dataset (`dataset.py`)
+- Downloads and decrypts the official BrowseComp dataset from OpenAI
+- Handles XOR decryption with automatic canary value detection
+- Creates DSPy Example objects for seamless integration
 
-   Or create a `.env` file:
-   ```
-   LANGFUSE_PUBLIC_KEY=pk-lf-...
-   LANGFUSE_SECRET_KEY=sk-lf-...
-   LANGFUSE_HOST=https://cloud.langfuse.com
-   ```
+### Evaluation (`eval.py`)
+- **DSPy Framework**: Uses `dspy.Evaluate` for standardized evaluation
+- **LLM Judge**: Intelligent answer evaluation with reasoning
+- **Parallel Execution**: Multi-threaded evaluation for efficiency
+- **Program Wrapper**: `BrowseCompProgram` adapts async LeadAgent for DSPy
 
-### Get Langfuse credentials:
-- Sign up at https://cloud.langfuse.com
-- Create a project
-- Copy your API keys from project settings
+### Usage
 
-### That's it! 🚀
-DSPy operations are automatically traced via OpenInference instrumentation. View traces at https://cloud.langfuse.com
+```python
+from eval import run_browsecomp_evaluation
 
-**Official documentation:** https://langfuse.com/docs/integrations/dspy
+# Quick evaluation
+results = run_browsecomp_evaluation(
+    num_examples=20,
+    num_threads=4
+)
+
+print(f"Accuracy: {results['accuracy']:.1f}%")
+```
+
+## Installation
+
+```bash
+pip install -r requirements.txt
+```
+
+## Environment Variables
+
+Create a `.env` file with:
+```
+BRAVE_SEARCH_API_KEY=your_key
+OPENROUTER_API_KEY=your_key
+OPENAI_API_KEY=your_key
+```
+
+## Usage
+
+```python
+from agent import LeadAgent
+import asyncio
+
+agent = LeadAgent()
+result = asyncio.run(agent.run("Your research question here"))
+print(result)
+```
+
+## Testing
+
+```bash
+pytest tests/
+```
+
+## Dependencies
+
+- dspy-ai
+- python-dotenv
+- wikipedia-api
+- brave-search-python
+- pandas (for BrowseComp dataset)
+
+## License
+
+MIT
