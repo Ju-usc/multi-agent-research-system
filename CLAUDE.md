@@ -53,3 +53,7 @@ A production-grade multi-agent research system implementing Anthropic's orchestr
 - Always try to explain in the planning phase what you are going to do as the user wants to learn technical details.
 - Do not overcomplicate the planning phase try to simplify approaches only to contain the most important and necessary components.
 - Always verify the specific syntax of library you are using via deepwiki mcp(mostly preferred), websearch, ask perpexlity, etc when implementing or desiging phases. 
+
+### Tool guidelines
+
+- use deepwiki mcp to ask any questions to refer official documentation of the library we are using (e.g. dspy, etc)
