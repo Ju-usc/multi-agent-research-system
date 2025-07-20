@@ -1,7 +1,12 @@
-# Agent Code Refactoring Plans
+# Multi-Agent Research System Plans
 
 ## Overview
-This document tracks the refactoring plans for agent.py to improve readability and maintainability.
+Strategic plans for multi-agent research system development. Each major feature gets its own worktree with dedicated tasks.md.
+
+## Git Worktree Strategy
+- **main/**: Core system maintenance and integration
+- **feature branches**: Independent worktrees for parallel development
+- **experiment/**: Detached HEAD worktree for quick tests (no branch needed)
 
 ## Active Plans
 

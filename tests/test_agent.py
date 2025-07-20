@@ -7,6 +7,10 @@ import logging
 from agent import LeadAgent
 from models import SubagentTask, SubagentResult, Memory
 import asyncio
+from dspy.datasets import BrowseCompDataset
+from eval import run_browsecomp_evaluation
+from eval import browsecomp_metric
+from eval import BrowseCompProgram
 
 # Suppress noisy warnings and logs
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
@@ -26,7 +30,6 @@ async def test_lead_agent_basic_run():
 
 def test_browsecomp_dataset():
     """Test BrowseComp dataset loading."""
-    from dataset import BrowseCompDataset
     
     dataset = BrowseCompDataset(num_examples=5)
     examples = dataset.load()
@@ -38,7 +41,6 @@ def test_browsecomp_dataset():
 
 def test_browsecomp_program_wrapper():
     """Test DSPy program wrapper for LeadAgent."""
-    from eval import BrowseCompProgram
     
     agent = LeadAgent()
     program = BrowseCompProgram(agent)
@@ -50,8 +52,7 @@ def test_browsecomp_program_wrapper():
 
 def test_browsecomp_metric():
     """Test BrowseComp metric function."""
-    import dspy
-    from eval import browsecomp_metric
+
     
     # Create mock example and prediction
     example = dspy.Example(
@@ -74,8 +75,7 @@ def test_browsecomp_metric():
 
 def test_browsecomp_evaluation_framework():
     """Test the DSPy evaluation framework integration."""
-    from eval import run_browsecomp_evaluation
-    
+
     # Test with very small sample for speed
     results = run_browsecomp_evaluation(
         num_examples=2,

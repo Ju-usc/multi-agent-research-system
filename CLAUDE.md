@@ -7,10 +7,13 @@ A production-grade multi-agent research system implementing Anthropic's orchestr
 
 ```
 multi-agent-research-system/
-├── agent.py                    # Core multi-agent orchestration system with LeadAgent and subagent implementations
+├── agent.py                    # Refactored orchestration system - LeadAgent with helper methods
+├── config.py                   # Environment variables, model constants, and logging configuration
+├── models.py                   # Pydantic models and DSPy signatures for the multi-agent system
+├── tools.py                    # Class-based tool implementations with async support
+├── utils.py                    # Helper functions including prediction_to_json and Langfuse setup
 ├── eval.py                     # BrowseComp evaluation framework with DSPy integration and LLM-as-judge metrics
 ├── dataset.py                  # BrowseComp dataset loader with XOR decryption and DSPy Example creation
-├── utils.py                    # Utility functions for model configuration and Langfuse observability setup
 ├── README.md                   # Project overview and basic usage instructions
 ├── CLAUDE.md                   # This file - detailed design specs and guidelines for Claude Code
 │
@@ -21,7 +24,8 @@ multi-agent-research-system/
 │   └── open_ai_browsecomp_eval.py  # OpenAI's original BrowseComp evaluation code
 │
 ├── tests/                      # Test suite
-│   └── test_agent.py          # Unit tests for agent functionality and BrowseComp evaluation
+│   ├── test_agent.py          # Integration tests for agent functionality and BrowseComp evaluation
+│   └── test_agent_units.py    # Comprehensive unit tests for refactored LeadAgent methods
 │
 └── .claude/                    # Claude Code configuration
     ├── commands/              # Custom slash commands
@@ -32,10 +36,13 @@ multi-agent-research-system/
 
 ### Key Files Overview
 
-- **agent.py**: The heart of the system - implements LeadAgent (orchestrator), subagent workers, memory system, and all DSPy signatures for planning, execution, and synthesis
+- **agent.py**: Refactored orchestration system - implements LeadAgent with clean separation of concerns through helper methods for planning, execution, and synthesis
+- **config.py**: Centralized configuration for environment variables, model constants, and logging setup
+- **models.py**: All Pydantic models (SubagentTask, SubagentResult, Memory) and DSPy signatures in one place
+- **tools.py**: Class-based tool implementations (WebSearchTool, WikipediaSearchTool, MemoryTool) with async support
+- **utils.py**: Helper functions including prediction_to_json and Langfuse observability setup
 - **eval.py**: Evaluation pipeline that wraps LeadAgent in DSPy's Evaluate framework, implements answer correctness metrics, and supports multi-threaded evaluation
 - **dataset.py**: Handles BrowseComp dataset operations including downloading, XOR decryption with canary checking, and conversion to DSPy Examples
-- **utils.py**: Configuration hub for model selection (O4_MINI, GEMINI_2.5_FLASH) and Langfuse observability initialization
 
 ## Design Principles
 
@@ -63,6 +70,40 @@ multi-agent-research-system/
 - **End-State Over Process**: Evaluate whether agents achieved correct outcomes, not prescribed paths
 - **Multi-Criteria Evaluation**: Assess factual accuracy, citation quality, completeness, and tool efficiency
 - **Source Quality Heuristics**: Prioritize primary sources, avoid SEO farms, distinguish speculation from facts
+
+## Refactored Architecture
+
+### Modular Design
+The codebase has been refactored from a monolithic 611-line agent.py into focused modules:
+
+1. **Separation of Concerns**
+   - Configuration separated into `config.py`
+   - Data models extracted to `models.py`
+   - Tool implementations moved to `tools.py`
+   - Helper utilities in `utils.py`
+   - Agent logic focused purely on orchestration
+
+2. **Clean Code Improvements**
+   - Helper methods for complex operations (execute_subagent_task, execute_tasks_parallel)
+   - Consistent logging using Python's standard logging module
+   - Memory operations wrapped for cleaner JSON handling
+   - Main methods (aforward, run) reduced to under 50 lines each
+
+3. **Testing Structure**
+   - `test_agent.py`: Integration tests for end-to-end functionality
+   - `test_agent_units.py`: Comprehensive unit tests with proper mocking
+   - 19 unit tests covering all refactored methods
+   - Tests for error handling, parallel execution, and memory persistence
+
+### Key Refactored Methods
+
+1. **execute_subagent_task()**: Handles individual subagent execution with error handling
+2. **execute_tasks_parallel()**: Manages concurrent subagent execution and result collection
+3. **store_to_memory()**: Simplified memory storage with automatic JSON conversion
+4. **plan_research()**: Extracted planning logic with trace updates
+5. **synthesize_results()**: Isolated synthesis phase with decision making
+6. **generate_final_report()**: Separated final report generation using ReAct
+7. **init_language_models()**: Centralized LM initialization
 
 ## Implementation Guidelines
 
@@ -146,7 +187,23 @@ multi-agent-research-system/
 **This project uses `uv` instead of `pip`/`python`**:
 - Run files: `uv run python <file.py>`
 - Run tests: `uv run pytest`
+- Run specific test file: `uv run pytest tests/test_agent_units.py -v`
 - Install deps: `uv sync`
+
+## Testing
+
+The project includes comprehensive test coverage:
+
+### Unit Tests (`tests/test_agent_units.py`)
+- Tests for all refactored helper methods with proper mocking
+- Coverage for error handling, parallel execution, and memory operations
+- 19 tests covering execute_subagent_task, execute_tasks_parallel, store_to_memory, plan_research, synthesize_results
+- Integration tests for full agent flow including multiple cycles and error recovery
+
+### Integration Tests (`tests/test_agent.py`)
+- End-to-end agent functionality tests
+- BrowseComp evaluation framework tests
+- Real agent execution with actual LLM calls
 
 ## General Workflow
 
@@ -155,3 +212,38 @@ multi-agent-research-system/
 3. **Implement** → Refer to tasks.md for specific steps
 4. **Update tracking** → Mark completed tasks in tasks.md
 5. **Update CLAUDE.md** → Update the CLAUDE.md file with the new information
+
+## Git Worktree Workflow
+
+### Setup
+```bash
+# Create worktree structure
+mkdir ~/project-worktrees && cd ~/project-worktrees
+git clone <repo> main && cd main
+git worktree add ../feature-x -b feature/x
+git worktree add ../experiment --detach  # For quick experiments
+```
+
+### Key Commands
+- **Add worktree**: `git worktree add ../name -b branch-name`
+- **List worktrees**: `git worktree list`
+- **Remove worktree**: `git worktree remove ../name`
+- **Switch branches**: `cd ../experiment && git checkout <branch>` (test without affecting main)
+
+### Productivity Pattern
+```
+project-worktrees/
+├── main/          # Primary development
+├── plans.md       # High-level strategy (shared)
+├── feature-x/
+│   └── tasks.md   # Feature-specific tasks
+├── feature-y/
+│   └── tasks.md   # Feature-specific tasks
+└── experiment/    # Temporary experiments (detached HEAD)
+```
+
+### Best Practices
+- Run Claude instances in parallel: one per worktree
+- Each worktree maintains independent state (no stashing needed)
+- Experiment freely without creating branches: `git worktree add -d ../experiment`
+- Clean up worktrees after merging: `git worktree remove ../feature-x`
