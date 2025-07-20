@@ -3,6 +3,7 @@ Utility functions for the multi-agent research system
 """
 
 import os
+import json
 from dotenv import load_dotenv
 
 
@@ -47,3 +48,27 @@ def setup_langfuse():
         return None
     
     return langfuse
+
+
+def prediction_to_json(prediction) -> str:
+    """Convert DSPy Prediction object to JSON string.
+    
+    Args:
+        prediction: DSPy Prediction object
+        
+    Returns:
+        JSON string representation of the prediction
+    """
+    data = {}
+    # Extract all fields from the prediction's _store
+    if hasattr(prediction, '_store'):
+        for key, value in prediction._store.items():
+            # Handle Pydantic models
+            if hasattr(value, 'model_dump'):
+                data[key] = value.model_dump()
+            # Handle lists of Pydantic models
+            elif isinstance(value, list) and value and hasattr(value[0], 'model_dump'):
+                data[key] = [item.model_dump() for item in value]
+            else:
+                data[key] = value
+    return json.dumps(data)

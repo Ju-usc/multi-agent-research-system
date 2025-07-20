@@ -140,3 +140,18 @@ multi-agent-research-system/
 - Code should be self-documenting
 - Comments explain why, not what
 - Keep comments up to date
+
+## Project Execution
+
+**This project uses `uv` instead of `pip`/`python`**:
+- Run files: `uv run python <file.py>`
+- Run tests: `uv run pytest`
+- Install deps: `uv sync`
+
+## General Workflow
+
+1. **Review plans.md** → Finalize/adjust plans
+2. **Create/update tasks.md** → Based on finalized plans.md
+3. **Implement** → Refer to tasks.md for specific steps
+4. **Update tracking** → Mark completed tasks in tasks.md
+5. **Update CLAUDE.md** → Update the CLAUDE.md file with the new information

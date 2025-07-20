@@ -34,22 +34,14 @@ Evaluate the multi-agent research system on OpenAI's BrowseComp dataset:
 
 ### Usage
 
-```python
-from eval import run_browsecomp_evaluation
-
-# Quick evaluation
-results = run_browsecomp_evaluation(
-    num_examples=20,
-    num_threads=4
-)
-
-print(f"Accuracy: {results['accuracy']:.1f}%")
+```bash
+uv run python -c "from eval import run_browsecomp_evaluation; results = run_browsecomp_evaluation(num_examples=20, num_threads=4); print(f'Accuracy: {results[\"accuracy\"]:.1f}%')"
 ```
 
 ## Installation
 
 ```bash
-pip install -r requirements.txt
+uv sync
 ```
 
 ## Environment Variables
@@ -63,19 +55,14 @@ OPENAI_API_KEY=your_key
 
 ## Usage
 
-```python
-from agent import LeadAgent
-import asyncio
-
-agent = LeadAgent()
-result = asyncio.run(agent.run("Your research question here"))
-print(result)
+```bash
+uv run python -c "from agent import LeadAgent; import asyncio; agent = LeadAgent(); print(asyncio.run(agent.run('Your research question here')))"
 ```
 
 ## Testing
 
 ```bash
-pytest tests/
+uv run pytest tests/
 ```
 
 ## Dependencies

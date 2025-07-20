@@ -4,7 +4,8 @@ import pytest
 import dspy
 import warnings
 import logging
-from agent import LeadAgent, SubagentTask, SubagentResult, Memory
+from agent import LeadAgent
+from models import SubagentTask, SubagentResult, Memory
 import asyncio
 
 # Suppress noisy warnings and logs

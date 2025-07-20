@@ -33,20 +33,22 @@ This document tracks the refactoring plans for agent.py to improve readability a
 - Cleaner main logic
 
 ### 5. Simplify Memory Operations ✅
-**Goal**: Create wrappers for memory operations
+**Goal**: Create wrappers for memory operations (JSON conversion only)
 **Status**: Active
 **Benefits**:
 - Hide JSON conversion complexity
 - Consistent memory key format
 - Easier memory debugging
+**Note**: No new functionality - just wrapping existing calls
 
 ### 6. Extract Model Configuration ✅
-**Goal**: Centralize LM initialization
+**Goal**: Centralize LM initialization (simple extraction only)
 **Status**: Active
 **Benefits**:
 - Single place for model config
 - Easier to swap models
 - Cleaner initialization
+**Note**: Just move existing LM initialization - no new ModelConfig class
 
 ### 7. Improve Main Flow in aforward() ✅
 **Goal**: Simplify main orchestration logic
@@ -75,12 +77,45 @@ This document tracks the refactoring plans for agent.py to improve readability a
 - Type safety
 - Immutability options
 
+### 11. Modularize Agent into Multiple Files ✅
+**Goal**: Break down monolithic agent.py (611 lines) into focused modules
+**Status**: Completed
+**Benefits**:
+- Better organization and maintainability
+- Easier testing of individual components
+- Clear separation of concerns
+- Reusable components
+
+**New File Structure**:
+1. **config.py** - Environment variables, model constants, logging setup
+2. **models.py** - Pydantic models and DSPy signatures 
+3. **tools.py** - Class-based tool implementations with `__call__` methods
+4. **utils.py** - Helper functions including prediction_to_json
+5. **agent.py** - Refactored to use new modules, focus on orchestration
+
+### 12. Unify Memory Tools for Better Code Organization 🚀
+**Goal**: Consolidate MemoryReadTool and MemoryListTool into single MemoryTool class
+**Status**: Completed
+**Benefits**:
+- Cleaner code structure with single memory tool class
+- LLM-friendly interface maintained (separate tool names)
+- Easier to extend with new memory operations
+- Better encapsulation of memory-related functionality
+
+**Implementation**:
+- Single `MemoryTool` class with `read()` and `list()` methods
+- Agent exposes methods as separate DSPy tools for LLM clarity
+- No breaking changes to existing tool interfaces
+
 ## Plan Adjustments Log
 
 ### 2024-01-20
 - Removed Plan #2 (Extract Tool Configuration) - would add unnecessary abstraction
 - Removed Plan #8 (Extract Response Preparation) - response dict is simple enough inline
 - Prioritizing plans that significantly reduce complexity without adding layers
+- Adjusted Plan #5 - Remove memory state summary feature (new functionality, not refactoring)
+- Adjusted Plan #6 - Simple LM initialization extraction only (no ModelConfig class)
+- Clarified error handling and logging must preserve exact current behavior
 
 ## Success Metrics
 - [ ] Main methods (aforward, run) under 50 lines each
