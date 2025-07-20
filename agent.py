@@ -3,323 +3,38 @@ Multi-Agent Research System - Async Implementation
 Implements Anthropic's orchestrator-worker architecture with async DSPy
 """
 
-import os
 import asyncio
-import warnings
-from typing import List, Dict, Optional, Literal, Any
-from enum import Enum
-from pydantic import BaseModel, Field
+from typing import List, Dict, Optional, Any
 import dspy
-from dspy.adapters import JSONAdapter
-import wikipedia
-from brave_search_python_client import BraveSearch, WebSearchRequest
-from dotenv import load_dotenv
-import json
+from dspy.adapters import JSONAdapter, TwoStepAdapter
 import logging
-from utils import setup_langfuse
 
-# Suppress noisy warnings and logs
-warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
-logging.getLogger("LiteLLM").setLevel(logging.WARNING)
+# Import from new modules
+from config import (
+    BRAVE_SEARCH_API_KEY, OPENROUTER_API_KEY, OPENROUTER_BASE_URL, OPENAI_API_KEY,
+    SMALL_MODEL, BIG_MODEL, TEMPERATURE, BIG_MODEL_MAX_TOKENS, SMALL_MODEL_MAX_TOKENS
+)
+from models import (
+    SubagentTask, SubagentResult, Memory,
+    MemorySummary, PlanResearch, ExecuteSubagentTask, SynthesizeAndDecide, FinalReport
+)
+from tools import (
+    WebSearchTool, WikipediaSearchTool, ParallelSearchTool,
+    MemoryTool
+)
+from utils import setup_langfuse, prediction_to_json
+from langfuse import observe
 
-# Load environment variables
-load_dotenv()
+# Setup logging
+logger = logging.getLogger(__name__)
 
 # ========== LANGFUSE SETUP ==========
 langfuse = setup_langfuse()
 # =====================================
 
-# Configuration
-BRAVE_SEARCH_API_KEY = os.getenv("BRAVE_SEARCH_API_KEY")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 
-SMALL_MODEL = os.getenv("GEMINI_2.5_FLASH_LITE")
-BIG_MODEL = os.getenv("O4_MINI")
-
-
-TEMPERATURE = float(os.getenv("TEMPERATURE", "1.0"))
-BIG_MODEL_MAX_TOKENS = int(os.getenv("BIG_MODEL_MAX_TOKENS", "20000"))
-SMALL_MODEL_MAX_TOKENS = int(os.getenv("SMALL_MODEL_MAX_TOKENS", "4000"))
-
-# ---------- Data Models (Unchanged) ----------
-
-class SubagentTask(BaseModel):
-    """Atomic research micro-task allocated to one sub-agent in the plan."""
-    task_id: int = Field(description="Identifier used to track this task across iterations")
-    objective: str = Field(description="Crisp single-focus goal the subagent must accomplish")
-    tool_guidance: Dict[Literal["web_search", "memory_read", "memory_list"], str] = Field(description="Mapping of allowed tool names to concise usage instructions")
-    tool_budget: int = Field(default=8, ge=3, le=15, description="Maximum number of tool calls the subagent may issue")
-    expected_output: str = Field(description="Exact artifact or information the subagent must return for completion")
-    tip: Optional[str] = Field(default=None, description="Optional hint to improve quality or efficiency while executing the task")
-
-
-class SubagentResult(BaseModel):
-    """Structured report a subagent returns after finishing its task."""
-    task_id: int = Field(description="Identifier of the task that produced this result")
-    summary: str = Field(description="High-density 2-4 sentence overview of the key findings")
-    finding: str = Field(description="Full detailed answer directly addressing the task objective")
-    debug_info: Optional[List[str]] = Field(default=None, description="Optional list of raw tool call traces for debugging")
-
-
-class Memory(BaseModel):
-    """In-memory store for research artifacts with lightweight summaries."""
-    store: Dict[str, str] = Field(default_factory=dict, description="Full JSON/text storage")
-    summaries: Dict[str, str] = Field(default_factory=dict, description="Condensed index cards to reference the memory storage")
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self._summarizer_lm = dspy.LM(
-            model=SMALL_MODEL,
-            api_key=OPENROUTER_API_KEY,
-            api_base=OPENROUTER_BASE_URL,
-            temperature=0.3,
-            max_tokens=SMALL_MODEL_MAX_TOKENS,
-        )
-        self._summarizer = dspy.Predict(MemorySummary)
-
-    async def summarize(self, text: str) -> str:
-        """Create a concise summary for the index card."""
-        with dspy.settings.context(lm=self._summarizer_lm):
-            result = await self._summarizer.acall(raw_context=text)
-            return result.summary
-        
-    async def write(self, cycle: int, type: str, content: str, task_id: Optional[int] = None) -> str:
-        """Write content to memory and create summary index card.
-        
-        Args:
-            cycle: Current cycle index
-            type: Stage type ('plan', 'task', 'synthesis')
-            content: Full content to store (typically JSON)
-            task_id: Optional task ID for subagent results
-            
-        Returns:
-            Key used to store the content
-        """
-        # Build deterministic key
-        key = f"{cycle}-{type}" if task_id is None else f"{cycle}-{type}-{task_id}"
-        
-        # Store full content
-        self.store[key] = content
-        self.summaries[key] = await self.summarize(content)
-        return key
-    
-    def read(self, key: str) -> str:
-        """Retrieve full content by key.
-        
-        Args:
-            key: Memory key (e.g., '1-plan', '2-task-3')
-            
-        Returns:
-            Full stored content or error message if not found
-        """
-        return self.store.get(key, f"[ERROR] Key not found: {key}")
-    
-    def list_keys(self) -> str:
-        """List all available memory keys for debugging."""
-        if not self.store:
-            return "No memory records available yet."
-        
-        keys = sorted(self.store.keys())
-        return f"Available memory keys: {', '.join(keys)}"
-    
-
-
-
-# ---------- DSPy Signatures (Unchanged) ----------
-
-class MemorySummary(dspy.Signature):
-    """Summarize the raw context in a way to easily retrieve and distil the most important information"""
-    raw_context: str = dspy.InputField(desc="The raw context to summarize")
-    summary: str = dspy.OutputField(desc="The summary of the raw context")    
-
-class PlanResearch(dspy.Signature):
-    """Generate strategic reasoning and a parallel task list for subagents from the user's query.
-    
-    IMPORTANT: Use consistent formatting for ALL field headers with ## on BOTH sides:
-    [[ ## next_thought ## ]]
-    [[ ## next_tool_name ## ]]  
-    [[ ## next_tool_args ## ]]
-    [[ ## reasoning ## ]]
-    [[ ## tasks ## ]]  
-    """
-    query: str = dspy.InputField(desc="Original user question providing context")
-    memory_summaries: Dict[str, str] = dspy.InputField(default={}, desc="Index of memory records with summaries. If empty, memory_read tool can't be used.")
-    reasoning: str = dspy.OutputField(desc="Extended strategic thinking to persist in memory")
-    tasks: List[SubagentTask] = dspy.OutputField(desc="Complete list of SubagentTask objects to execute in parallel")
-
-class ExecuteSubagentTask(dspy.Signature):
-    """Run one subagent task with its tools and return a structured result.
-    
-    IMPORTANT: Use consistent formatting for ALL field headers with ## on BOTH sides:
-    [[ ## next_thought ## ]]
-    [[ ## next_tool_name ## ]]  
-    [[ ## next_tool_args ## ]]
-    """
-    task: SubagentTask = dspy.InputField(desc="SubagentTask definition to be executed")
-    final_result: SubagentResult = dspy.OutputField(desc="Structured outcome generated by the subagent")
-    reasoning: str = dspy.OutputField(desc="Subagent's internal rationale for the result")
-
-class SynthesizeAndDecide(dspy.Signature):
-    """Synthesize completed research results and determine if investigation is complete or requires additional cycles."""
-    query: str = dspy.InputField(desc="Original user question guiding evaluation")
-    memory_summaries: Dict[str, str] = dspy.InputField(default={}, desc="Index of memory records with summaries")
-    completed_results: List[SubagentResult] = dspy.InputField(desc="List of SubagentResult objects ready for synthesis")
-    synthesis: str = dspy.OutputField(desc="New consolidated insights from the completed results")
-    is_done: bool = dspy.OutputField(desc="True if research is complete and ready to generate final report, False to continue with additional cycles")
-    gap_analysis: Optional[str] = dspy.OutputField(desc="If not done, summarize gaps/incompletes/conflicts to address")
-    refined_query: Optional[str] = dspy.OutputField(desc="If not done, provide refined query for next iteration")
-
-class FinalReport(dspy.Signature):
-    """Distill memory into a final report. Use tools to read details.
-    
-    IMPORTANT: Use consistent formatting for ALL field headers with ## on BOTH sides:
-    [[ ## next_thought ## ]]
-    [[ ## next_tool_name ## ]]  
-    [[ ## next_tool_args ## ]]
-    """
-    query: str = dspy.InputField(desc="Original query")
-    memory_summaries: Dict[str, str] = dspy.InputField(desc="Memory index summaries")
-    final_synthesis: str = dspy.InputField(desc="Final synthesis of the last cycle")
-    steps_trace: List[str] = dspy.InputField(desc="List of steps taken by the agent. Helpful to understand entire process taken to answer the query")
-    report: str = dspy.OutputField(desc="Complete Markdown report")
-
-# ---------- Async Tool Implementations ----------
-
-async def web_search(query: str, count: int = 5) -> str:
-    """Search the web using Brave Search.
-    
-    Args:
-        query: Search query
-        count: Number of results (default: 5)
-        
-    Returns:
-        Formatted search results
-    """
-    if count > 5:
-        count = 5
-    
-    client = BraveSearch(api_key=BRAVE_SEARCH_API_KEY)
-    
-    try:
-        response = await client.web(WebSearchRequest(q=query, count=count))
-        
-        if not response.web or not response.web.results:
-            return f"No results found for '{query}'"
-
-        results = []
-        for i, result in enumerate(response.web.results[:count], 1):
-            results.append(f"{i}. {result.title}\\n   {result.description}\\n   {result.url}")
-        
-        return f"Search results for '{query}':\\n\\n" + "\\n\\n".join(results)
-    except Exception as e:
-        return f"Search error: {e}"
-
-
-def wikipedia_search(query: str, sentences: int = 3) -> str:
-    """
-    Return a concise English summary for `query` (≤ `sentences` sentences).
-
-    If Wikipedia returns multiple possible pages (disambiguation), we list the
-    top 5 options so the calling agent can decide what to do next.
-    """
-    try:
-        wikipedia.set_lang("en")
-        titles = wikipedia.search(query, results=1)
-        if not titles:
-            return f"No Wikipedia article found for '{query}'."
-
-        title = titles[0]
-        summary = wikipedia.summary(title, sentences=sentences, auto_suggest=False)
-        return f"Wikipedia – {title}\\n\\n{summary}"
-
-    except wikipedia.exceptions.DisambiguationError as e:
-        # Show a short disambiguation list
-        opts = "\\n • ".join(e.options[:5])
-        return f"Wikipedia disambiguation for '{query}'. Try one of:\\n • {opts}"
-    except Exception as err:
-        return f"Wikipedia error: {err}"
-
-
-async def async_batch_call(calls: list[dict]) -> list[str]:
-    """
-    Execute multiple tool calls in parallel for efficiency using async.
-    
-    Args:
-        calls: List of dicts, each with:
-            - tool_name: Name of the tool ('web_search' or 'wikipedia_search')
-            - args: Dictionary of arguments for that tool
-            
-    Example:
-        calls = [
-            {"tool_name": "web_search", "args": {"query": "Lamine Yamal stats", "count": 2}},
-            {"tool_name": "web_search", "args": {"query": "Desire Doue stats", "count": 2}},
-            {"tool_name": "wikipedia_search", "args": {"query": "Lamine Yamal", "sentences": 5}},
-            {"tool_name": "wikipedia_search", "args": {"query": "Desire Doue", "sentences": 5}}
-        ]
-    
-    Returns:
-        List of results in the same order as input calls
-    """
-    tasks = []
-    formatted_results = []
-    
-    for call in calls:
-        tool_name = call.get("tool_name")
-        args = call.get("args", {})
-        
-        if tool_name == "web_search":
-            # Async function - call directly
-            task = web_search(**args)
-        elif tool_name == "wikipedia_search":
-            # Sync function - run in thread pool
-            task = asyncio.to_thread(wikipedia_search, **args)
-        else:
-            # Invalid tool
-            formatted_results.append(f"[ERROR] Unknown tool: {tool_name}")
-            continue
-
-        tasks.append(task)
-    
-    # Execute all tasks concurrently with error handling
-    # return_exceptions=True ensures failed tools don't crash everything
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    
-    # Format results with tool names
-    for i, output in enumerate(results):
-        tool_name = calls[i].get("tool_name", "unknown")
-        if isinstance(output, Exception):
-            # Convert exception to string so LLM can reason about the failure
-            error_msg = f"[ERROR] {type(output).__name__}: {str(output)}"
-            formatted_results.append(f"{tool_name}: {error_msg}")
-        else:
-            formatted_results.append(f"{tool_name}: {output}")
-    
-    return formatted_results
-
-
-# ---------- Helper Functions ----------
-
-def prediction_to_json(prediction) -> str:
-    """Convert DSPy Prediction object to JSON string."""
-    data = {}
-    # Extract all fields from the prediction's _store
-    if hasattr(prediction, '_store'):
-        for key, value in prediction._store.items():
-            # Handle Pydantic models
-            if hasattr(value, 'model_dump'):
-                data[key] = value.model_dump()
-            # Handle lists of Pydantic models
-            elif isinstance(value, list) and value and hasattr(value[0], 'model_dump'):
-                data[key] = [item.model_dump() for item in value]
-            else:
-                data[key] = value
-    return json.dumps(data)
-
-
-# ---------- Lead Agent DSPy Modules ----------
+# ---------- Lead Agent DSPy Module ----------
 
 class LeadAgent(dspy.Module):
     """Lead agent: plans once, launches parallel subagents, synthesizes, then decides."""
@@ -330,36 +45,46 @@ class LeadAgent(dspy.Module):
         self.cycle_idx = 0  # Track cycles for memory keys
         self.steps_trace: List[Dict[str, Any]] = []  # High-level trace of steps
 
-        # Initialize all tools - simplified for better ReAct compatibility
+        # Initialize tool instances
+        self.web_search_tool = WebSearchTool(BRAVE_SEARCH_API_KEY)
+        self.wikipedia_tool = WikipediaSearchTool()
+        self.memory_tool = MemoryTool(self.memory)
+
+        # Create DSPy tools from class instances
         self.tools = {
             "web_search": dspy.Tool(
-                web_search,
+                self.web_search_tool,
                 name="web_search",
                 desc="Search the web for information. Default 5 results."
             ),
             "wikipedia_search": dspy.Tool(
-                wikipedia_search,
+                self.wikipedia_tool,
                 name="wikipedia_search",
                 desc="Search Wikipedia for information. Max 3 sentences."
             ),
-            # "parallel_search": dspy.Tool(
-            #     async_batch_call,
-            #     name="parallel_search",
-            #     desc="Run multiple searches in parallel. Provide tool_name ('web_search' or 'wikipedia_search') and args for each call."
-            # ),
             "memory_read": dspy.Tool(
-                lambda key: self.memory.read(key),
+                self.memory_tool.read,
                 name="memory_read",
                 desc="Retrieve full memory record by key. Use format: '{cycle}-{type}' or '{cycle}-task-{task_id}'. Examples: '1-plan', '1-synthesis', '1-task-0', '1-task-1'."
             ),
             "memory_list": dspy.Tool(
-                lambda: self.memory.list_keys(),
+                self.memory_tool.list,
                 name="memory_list",
                 desc="List all available memory keys to see what data has been stored."
             )
         }
 
-        # Language models
+        # Initialize language models
+        self.init_language_models()
+
+        # Create modules without context - we'll set context during execution
+        planning_tools = [self.tools["web_search"], self.tools["memory_read"], self.tools["memory_list"]]
+        # Create ReAct with JSONAdapter for better parsing reliability
+        self.planner = dspy.ReAct(PlanResearch, tools=planning_tools, max_iters=3)
+        self.synthesizer = dspy.ChainOfThought(SynthesizeAndDecide)
+    
+    def init_language_models(self):
+        """Initialize all language models in one place."""
         self.planner_lm = dspy.LM(
             model=BIG_MODEL,
             api_key=OPENAI_API_KEY,
@@ -382,13 +107,216 @@ class LeadAgent(dspy.Module):
             max_tokens=SMALL_MODEL_MAX_TOKENS,
         )
 
+        self.final_report_lm = dspy.LM(
+            model=BIG_MODEL,
+            api_key=OPENAI_API_KEY,
+            temperature=TEMPERATURE,
+            max_tokens=BIG_MODEL_MAX_TOKENS,
+        )
 
-        # Create modules without context - we'll set context during execution
-        planning_tools = [self.tools["web_search"], self.tools["memory_read"], self.tools["memory_list"]]
-        # Create ReAct with JSONAdapter for better parsing reliability
-        self.planner = dspy.ReAct(PlanResearch, tools=planning_tools, max_iters=3)
-        self.synthesizer = dspy.ChainOfThought(SynthesizeAndDecide)
+    async def store_to_memory(self, cycle: int, type: str, content: Any, task_id: Optional[int] = None) -> str:
+        """Store content to memory with automatic JSON conversion.
+        
+        Args:
+            cycle: Current cycle index
+            type: Stage type ('plan', 'task', 'synthesis')
+            content: Content to store (can be DSPy Prediction, Pydantic model, or string)
+            task_id: Optional task ID for subagent results
+            
+        Returns:
+            Memory key used for storage
+        """
+        # Convert content to JSON string if needed
+        if isinstance(content, str):
+            json_content = content
+        elif hasattr(content, 'model_dump_json'):
+            # Pydantic model
+            json_content = content.model_dump_json()
+        elif hasattr(content, '_store'):
+            # DSPy Prediction object
+            json_content = prediction_to_json(content)
+        else:
+            # Fallback to JSON dumps
+            import json
+            json_content = json.dumps(content)
+        
+        # Store to memory
+        return await self.memory.write(cycle, type, json_content, task_id)
 
+    @observe(name="execute_subagent", capture_input=True, capture_output=True)
+    async def execute_subagent_task(self, task: SubagentTask, subagent_lm) -> Optional[SubagentResult]:
+        """Execute a single subagent task with proper tool setup and error handling.
+        
+        Args:
+            task: The SubagentTask to execute
+            subagent_lm: Language model to use for the subagent
+            
+        Returns:
+            SubagentResult on success, None on failure
+        """
+        try:
+            # Setup permitted tools for this task
+            permitted_tools = [self.tools[name] for name in task.tool_guidance.keys() if name in self.tools]
+            # Always include memory tools
+            permitted_tools.extend([self.tools["memory_read"], self.tools["memory_list"]])
+            
+            # Execute subagent with DSPy context
+            with dspy.context(lm=subagent_lm):
+                sub = dspy.ReAct(ExecuteSubagentTask, tools=permitted_tools, max_iters=task.tool_budget)
+                sub.adapter = JSONAdapter()  # Use JSON adapter for better parsing
+                result = await sub.acall(task=task)
+            
+            # Validate and return result
+            if hasattr(result, "final_result") and result.final_result is not None:
+                return result.final_result
+            else:
+                logger.warning(f"Task {task.task_id} returned invalid result")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Task {task.task_id} error: {str(e)}")
+            return None
+
+    @observe(name="execute_parallel_tasks", capture_input=True, capture_output=True)
+    async def execute_tasks_parallel(self, tasks: List[SubagentTask]) -> List[SubagentResult]:
+        """Execute multiple subagent tasks in parallel and collect results.
+        
+        Args:
+            tasks: List of SubagentTask objects to execute
+            
+        Returns:
+            List of valid SubagentResult objects (excludes failures)
+        """
+        logger.info(f"🚀 Launching {len(tasks)} subagents in parallel...")
+        
+        # Create task calls
+        task_calls = []
+        for task in tasks:
+            task_calls.append(self.execute_subagent_task(task, self.subagent_lm))
+        
+        # Execute all tasks in parallel with error handling
+        raw_results = await asyncio.gather(*task_calls, return_exceptions=True)
+        logger.info(f"📊 Processing {len(raw_results)} subagent results...")
+        
+        # Filter and process valid results
+        results = []
+        for i, r in enumerate(raw_results):
+            if isinstance(r, Exception):
+                logger.error(f"Subagent {i} error: {str(r)}")
+                continue
+            if r is not None:
+                results.append(r)
+                # Write to memory
+                await self.store_to_memory(self.cycle_idx, "task", r, task_id=r.task_id)
+                logger.info(f"✅ Subagent {i} completed - Task ID: {r.task_id}")
+                logger.debug(f"Summary: {r.summary[:100]}...")
+            else:
+                logger.warning(f"Subagent {i} returned invalid result")
+        
+        logger.info(f"📈 Successfully collected {len(results)} valid results")
+        return results
+
+    @observe(name="plan_research", capture_input=True, capture_output=True)
+    async def plan_research(self, query: str) -> dspy.Prediction:
+        """Execute planning phase and return plan.
+        
+        Args:
+            query: Research query to plan for
+            
+        Returns:
+            PlanResult prediction containing tasks and reasoning
+        """
+        logger.info(f"🔍 CYCLE {self.cycle_idx + 1}: Starting planning phase...")
+        logger.debug(f"Query: {query}")
+        logger.debug(f"Memory summaries available: {len(self.memory.summaries)} items")
+        
+        with dspy.context(lm=self.planner_lm):
+            plan = await self.planner.acall(query=query, memory_summaries=self.memory.summaries)
+        
+        logger.info(f"✅ Plan generated with {len(plan.tasks)} tasks")
+        logger.debug(f"Reasoning: {plan.reasoning[:150]}...")
+        
+        for i, task in enumerate(plan.tasks):
+            logger.debug(f"Task {i}: {task.objective[:100]}...")
+        
+        # Write plan to memory (non-blocking)
+        plan_key = await self.store_to_memory(self.cycle_idx, "plan", plan)
+        self.steps_trace.append({
+            'cycle': self.cycle_idx,
+            'action': 'Planned',
+            'summary': f"Generated {len(plan.tasks)} tasks",
+            'memory_key': plan_key
+        })
+        
+        return plan
+    
+    @observe(name="synthesize", capture_input=True, capture_output=True)
+    async def synthesize_results(self, query: str, results: List[SubagentResult]) -> dspy.Prediction:
+        """Execute synthesis phase and return decision.
+        
+        Args:
+            query: Original research query
+            results: List of completed subagent results
+            
+        Returns:
+            SynthesisResult prediction containing decision and synthesis
+        """
+        logger.info(f"🧠 Starting synthesis phase...")
+        logger.debug(f"Synthesizing {len(results)} results")
+        
+        with dspy.context(lm=self.synthesizer_lm):
+            decision = await self.synthesizer.acall(query=query, memory_summaries=self.memory.summaries, completed_results=results)
+        
+        logger.info(f"✅ Synthesis completed - Decision: {'DONE' if decision.is_done else 'CONTINUE'}")
+        logger.debug(f"Synthesis: {decision.synthesis[:150]}...")
+        
+        if not decision.is_done:
+            logger.info(f"🔍 Gap analysis: {decision.gap_analysis[:100]}...")
+            logger.info(f"🔄 Refined query: {decision.refined_query[:100]}...")
+        
+        # Write synthesis to memory (non-blocking)
+        synth_key = await self.store_to_memory(self.cycle_idx, "synthesis", decision)
+        self.steps_trace.append({
+            'cycle': self.cycle_idx,
+            'action': 'Synthesized',
+            'summary': f"Decision: {'DONE' if decision.is_done else 'CONTINUE'}, {len(results)} results",
+            'memory_key': synth_key
+        })
+        
+        return decision
+
+    @observe(name="generate_final_report", capture_input=True, capture_output=True)
+    async def generate_final_report(self, query: str, final_synthesis: str) -> str:
+        """Generate final markdown report from memory.
+        
+        Args:
+            query: Original research query
+            final_synthesis: Final synthesis from last cycle
+            
+        Returns:
+            Markdown formatted final report
+        """
+        logger.info(f"📄 GENERATING FINAL REPORT...")
+        logger.debug(f"Available memory keys: {len(self.memory.summaries)}")
+        logger.debug(f"Steps taken: {len(self.steps_trace)}")
+        
+        final_react = dspy.ReAct(FinalReport, tools=[self.tools["memory_read"], self.tools["memory_list"]], max_iters=5)
+        final_react.adapter = JSONAdapter()  # Use JSONAdapter for compatibility
+        
+        with dspy.context(lm=self.final_report_lm):
+            final_result = await final_react.acall(
+                query=query,
+                memory_summaries=self.memory.summaries,
+                final_synthesis=final_synthesis,
+                steps_trace=self.steps_trace  # Use for indexing memory reads
+            )
+        
+        logger.info(f"✅ Final report generated!")
+        logger.debug(f"Report length: {len(final_result.report)} characters")
+        
+        return final_result.report
+
+    @observe(name="lead_agent_main", capture_input=True, capture_output=True)
     async def aforward(self, query: str):
         """Plan → execute tasks in parallel → synthesize/decide (single cycle)."""
         
@@ -396,85 +324,14 @@ class LeadAgent(dspy.Module):
         self.cycle_idx += 1
 
         # 1. Generate plan
-        print(f"\n🔍 CYCLE {self.cycle_idx}: Starting planning phase...")
-        print(f"📝 Query: {query}")
-        print(f"💾 Memory summaries available: {len(self.memory.summaries)} items")
-        
-        with dspy.context(lm=self.planner_lm):
-            plan = await self.planner.acall(query=query, memory_summaries=self.memory.summaries)
-        
-        print(f"✅ Plan generated successfully!")
-        print(f"🎯 Reasoning: {plan.reasoning[:150]}...")
-        print(f"📋 Tasks created: {len(plan.tasks)}")
-        for i, task in enumerate(plan.tasks):
-            print(f"   Task {i}: {task.objective[:100]}...")
-        
-        # Write plan to memory (non-blocking)
-        plan_key = await self.memory.write(self.cycle_idx, "plan", prediction_to_json(plan))
-        self.steps_trace.append({
-            'cycle': self.cycle_idx,
-            'action': 'Planned',
-            'summary': f"Generated {len(plan.tasks)} tasks",
-            'memory_key': plan_key
-        })
+        plan = await self.plan_research(query)
 
         # 2. Launch subagents in parallel
-        print(f"\n🚀 Launching {len(plan.tasks)} subagents in parallel...")
-        task_calls = []
-        for task in plan.tasks:
-            # Include memory tools for all subagents
-            permitted_tools = [self.tools[name] for name in task.tool_guidance.keys() if name in self.tools]
-            permitted_tools.extend([self.tools["memory_read"], self.tools["memory_list"]])
-            
-            async def run_sub(task=task, permitted_tools=permitted_tools):
-                with dspy.context(lm=self.subagent_lm):
-                    sub = dspy.ReAct(ExecuteSubagentTask, tools=permitted_tools, max_iters=task.tool_budget)
-                    sub.adapter = JSONAdapter()  # Use JSON adapter for better parsing
-                    return await sub.acall(task=task)
-            
-            task_calls.append(run_sub())
-
-        raw_results = await asyncio.gather(*task_calls, return_exceptions=True)
-        print(f"\n📊 Processing {len(raw_results)} subagent results...")
-        
-        results = []
-        for i, r in enumerate(raw_results):
-            if isinstance(r, Exception):
-                print(f"❌ Subagent {i} error: {str(r)}")
-                continue
-            if hasattr(r, "final_result") and r.final_result is not None:
-                results.append(r.final_result)
-                await self.memory.write(self.cycle_idx, "task", r.final_result.model_dump_json(), task_id=r.final_result.task_id)
-                print(f"✅ Subagent {i} completed - Task ID: {r.final_result.task_id}")
-                print(f"   Summary: {r.final_result.summary[:100]}...")
-            else:
-                print(f"⚠️  Subagent {i} returned invalid result")
-        
-        print(f"📈 Successfully collected {len(results)} valid results")
+        results = await self.execute_tasks_parallel(plan.tasks)
 
         # 3. Synthesize and decide
-        print(f"\n🧠 Starting synthesis phase...")
-        print(f"🔗 Synthesizing {len(results)} results")
+        decision = await self.synthesize_results(query, results)
         
-        with dspy.context(lm=self.synthesizer_lm):
-            decision = await self.synthesizer.acall(query=query, memory_summaries=self.memory.summaries, completed_results=results)
-        
-        print(f"🎯 Synthesis completed!")
-        print(f"✅ Decision: {'DONE' if decision.is_done else 'CONTINUE'}")
-        print(f"📝 Synthesis: {decision.synthesis[:150]}...")
-        if not decision.is_done:
-            print(f"🔍 Gap analysis: {decision.gap_analysis[:100]}...")
-            print(f"🔄 Refined query: {decision.refined_query[:100]}...")
-        
-        # Write synthesis to memory (non-blocking)
-        synth_key = await self.memory.write(self.cycle_idx, "synthesis", prediction_to_json(decision))
-        self.steps_trace.append({
-            'cycle': self.cycle_idx,
-            'action': 'Synthesized',
-            'summary': f"Decision: {'DONE' if decision.is_done else 'CONTINUE'}, {len(results)} results",
-            'memory_key': synth_key
-        })
-
         return {
             "is_done": decision.is_done,
             "synthesis": decision.synthesis,
@@ -485,9 +342,9 @@ class LeadAgent(dspy.Module):
 
     async def run(self, query: str):
         """Runs a single minimal-cycle research and returns the best available answer."""
-        print(f"\n🎬 STARTING RESEARCH SESSION")
-        print(f"🎯 Original query: {query}")
-        print("=" * 80)
+        logger.info(f"🎬 STARTING RESEARCH SESSION")
+        logger.info(f"🎯 Original query: {query}")
+        logger.info("=" * 80)
         
         result = None
         cycle_count = 0
@@ -496,47 +353,32 @@ class LeadAgent(dspy.Module):
             current_query = query
             if result and "refined_query" in result and result["refined_query"]:
                 current_query = result["refined_query"]  # Use refined if provided
-                print(f"\n🔄 REFINED QUERY (Cycle {cycle_count}): {current_query}")
+                logger.info(f"🔄 REFINED QUERY (Cycle {cycle_count}): {current_query}")
             
             result = await self.aforward(current_query)
-            print(f"\n📊 CYCLE {cycle_count} COMPLETE - Decision: {'DONE ✅' if result['is_done'] else 'CONTINUE 🔄'}")
+            logger.info(f"📊 CYCLE {cycle_count} COMPLETE - Decision: {'DONE ✅' if result['is_done'] else 'CONTINUE 🔄'}")
             
             
         # When done, use ReAct to distill into report
         if result["is_done"]:
-            print(f"\n📄 GENERATING FINAL REPORT...")
-            print(f"📚 Available memory keys: {len(self.memory.summaries)}")
-            print(f"📋 Steps taken: {len(self.steps_trace)}")
+            final_report = await self.generate_final_report(query, result["synthesis"])
+            logger.info("🎉 RESEARCH SESSION COMPLETE!")
+            logger.info("=" * 80)
+            return final_report
             
-            final_react = dspy.ReAct(FinalReport, tools=[self.tools["memory_read"], self.tools["memory_list"]], max_iters=3)
-            final_react.adapter = JSONAdapter()  # Use JSON adapter for better parsing
-            with dspy.context(lm=self.synthesizer_lm):
-                final_result = await final_react.acall(
-                    query=query,
-                    memory_summaries=self.memory.summaries,
-                    final_synthesis=result["synthesis"],
-                    steps_trace=self.steps_trace  # Use for indexing memory reads
-                )
-            
-            print(f"📝 Final report generated!")
-            print(f"📏 Report length: {len(final_result.report)} characters")
-            print("🎉 RESEARCH SESSION COMPLETE!")
-            print("=" * 80)
-            return final_result.report
-            
-        print("⚠️  Research incomplete, returning synthesis")
+        logger.warning("Research incomplete, returning synthesis")
         return result["synthesis"]  # Fallback
     
 
 
 if __name__ == "__main__":
-    print("🤖 Initializing LeadAgent...")
+    logger.info("🤖 Initializing LeadAgent...")
     agent = LeadAgent()
-    print("✅ Agent initialized successfully!")
+    logger.info("✅ Agent initialized successfully!")
     
     result = asyncio.run(agent.run("Doue vs Yamal who's better? Be objective"))
     
-    print("\n" + "="*80)
-    print("📋 FINAL RESULT:")
-    print("="*80)
-    print(result)
+    logger.info("\n" + "="*80)
+    logger.info("📋 FINAL RESULT:")
+    logger.info("="*80)
+    logger.info(result)
