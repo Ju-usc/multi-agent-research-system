@@ -15,12 +15,11 @@ from config import (
     SMALL_MODEL, BIG_MODEL, TEMPERATURE, BIG_MODEL_MAX_TOKENS, SMALL_MODEL_MAX_TOKENS
 )
 from models import (
-    SubagentTask, SubagentResult, Memory,
-    MemorySummary, PlanResearch, ExecuteSubagentTask, SynthesizeAndDecide, FinalReport
+    SubagentTask, SubagentResult, FileSystem,
+    PlanResearch, ExecuteSubagentTask, SynthesizeAndDecide, FinalReport
 )
 from tools import (
-    WebSearchTool, WikipediaSearchTool, ParallelSearchTool,
-    MemoryTool
+    WebSearchTool, ParallelSearchTool, FileSystemTool
 )
 from utils import setup_langfuse, prediction_to_json
 from langfuse import observe
@@ -41,14 +40,14 @@ class LeadAgent(dspy.Module):
 
     def __init__(self):
         super().__init__()
-        self.memory = Memory()
-        self.cycle_idx = 0  # Track cycles for memory keys
+        self.fs = FileSystem()
+        self.cycle_idx = 0  # Track cycles
         self.steps_trace: List[Dict[str, Any]] = []  # High-level trace of steps
+        self.tool_logs: Dict[str, List[str]] = {}  # Store tool logs per task
 
         # Initialize tool instances
         self.web_search_tool = WebSearchTool(BRAVE_SEARCH_API_KEY)
-        self.wikipedia_tool = WikipediaSearchTool()
-        self.memory_tool = MemoryTool(self.memory)
+        self.fs_tool = FileSystemTool(self.fs)
 
         # Create DSPy tools from class instances
         self.tools = {
@@ -57,20 +56,15 @@ class LeadAgent(dspy.Module):
                 name="web_search",
                 desc="Search the web for information. Default 5 results."
             ),
-            "wikipedia_search": dspy.Tool(
-                self.wikipedia_tool,
-                name="wikipedia_search",
-                desc="Search Wikipedia for information. Max 3 sentences."
+            "filesystem_read": dspy.Tool(
+                self.fs_tool.read,
+                name="filesystem_read",
+                desc="Read file from research memory"
             ),
-            "memory_read": dspy.Tool(
-                self.memory_tool.read,
-                name="memory_read",
-                desc="Retrieve full memory record by key. Use format: '{cycle}-{type}' or '{cycle}-task-{task_id}'. Examples: '1-plan', '1-synthesis', '1-task-0', '1-task-1'."
-            ),
-            "memory_list": dspy.Tool(
-                self.memory_tool.list,
-                name="memory_list",
-                desc="List all available memory keys to see what data has been stored."
+            "filesystem_tree": dspy.Tool(
+                self.fs_tool.tree,
+                name="filesystem_tree",
+                desc="Show filesystem structure to see available research data"
             )
         }
 
@@ -78,7 +72,7 @@ class LeadAgent(dspy.Module):
         self.init_language_models()
 
         # Create modules without context - we'll set context during execution
-        planning_tools = [self.tools["web_search"], self.tools["memory_read"], self.tools["memory_list"]]
+        planning_tools = [self.tools["web_search"], self.tools["filesystem_read"], self.tools["filesystem_tree"]]
         # Create ReAct with JSONAdapter for better parsing reliability
         self.planner = dspy.ReAct(PlanResearch, tools=planning_tools, max_iters=3)
         self.synthesizer = dspy.ChainOfThought(SynthesizeAndDecide)
@@ -114,34 +108,6 @@ class LeadAgent(dspy.Module):
             max_tokens=BIG_MODEL_MAX_TOKENS,
         )
 
-    async def store_to_memory(self, cycle: int, type: str, content: Any, task_id: Optional[int] = None) -> str:
-        """Store content to memory with automatic JSON conversion.
-        
-        Args:
-            cycle: Current cycle index
-            type: Stage type ('plan', 'task', 'synthesis')
-            content: Content to store (can be DSPy Prediction, Pydantic model, or string)
-            task_id: Optional task ID for subagent results
-            
-        Returns:
-            Memory key used for storage
-        """
-        # Convert content to JSON string if needed
-        if isinstance(content, str):
-            json_content = content
-        elif hasattr(content, 'model_dump_json'):
-            # Pydantic model
-            json_content = content.model_dump_json()
-        elif hasattr(content, '_store'):
-            # DSPy Prediction object
-            json_content = prediction_to_json(content)
-        else:
-            # Fallback to JSON dumps
-            import json
-            json_content = json.dumps(content)
-        
-        # Store to memory
-        return await self.memory.write(cycle, type, json_content, task_id)
 
     @observe(name="execute_subagent", capture_input=True, capture_output=True)
     async def execute_subagent_task(self, task: SubagentTask, subagent_lm) -> Optional[SubagentResult]:
@@ -157,24 +123,24 @@ class LeadAgent(dspy.Module):
         try:
             # Setup permitted tools for this task
             permitted_tools = [self.tools[name] for name in task.tool_guidance.keys() if name in self.tools]
-            # Always include memory tools
-            permitted_tools.extend([self.tools["memory_read"], self.tools["memory_list"]])
+            # Always include filesystem tools
+            permitted_tools.extend([self.tools["filesystem_read"], self.tools["filesystem_tree"]])
             
             # Execute subagent with DSPy context
             with dspy.context(lm=subagent_lm):
                 sub = dspy.ReAct(ExecuteSubagentTask, tools=permitted_tools, max_iters=task.tool_budget)
                 sub.adapter = JSONAdapter()  # Use JSON adapter for better parsing
                 result = await sub.acall(task=task)
-            
-            # Validate and return result
-            if hasattr(result, "final_result") and result.final_result is not None:
+        
+            # Return result - final_result is guaranteed by ExecuteSubagentTask signature
+            if result.final_result is not None:
                 return result.final_result
             else:
-                logger.warning(f"Task {task.task_id} returned invalid result")
+                logger.warning(f"Task {task.task_name} returned invalid result")
                 return None
                 
         except Exception as e:
-            logger.error(f"Task {task.task_id} error: {str(e)}")
+            logger.error(f"Task {task.task_name} error: {str(e)}")
             return None
 
     @observe(name="execute_parallel_tasks", capture_input=True, capture_output=True)
@@ -206,9 +172,12 @@ class LeadAgent(dspy.Module):
                 continue
             if r is not None:
                 results.append(r)
-                # Write to memory
-                await self.store_to_memory(self.cycle_idx, "task", r, task_id=r.task_id)
-                logger.info(f"✅ Subagent {i} completed - Task ID: {r.task_id}")
+                # Update task_name in result
+                r.task_name = tasks[i].task_name
+                # Write result to filesystem
+                result_path = f"cycle_{self.cycle_idx:03d}/{r.task_name}/result.md"
+                self.fs.write(result_path, str(r))
+                logger.info(f"✅ Subagent {i} completed - Task: {r.task_name}")
                 logger.debug(f"Summary: {r.summary[:100]}...")
             else:
                 logger.warning(f"Subagent {i} returned invalid result")
@@ -228,10 +197,13 @@ class LeadAgent(dspy.Module):
         """
         logger.info(f"🔍 CYCLE {self.cycle_idx + 1}: Starting planning phase...")
         logger.debug(f"Query: {query}")
-        logger.debug(f"Memory summaries available: {len(self.memory.summaries)} items")
+        
+        # Get current filesystem structure
+        memory_tree = self.fs.tree()
+        logger.debug(f"Current memory structure:\n{memory_tree}")
         
         with dspy.context(lm=self.planner_lm):
-            plan = await self.planner.acall(query=query, memory_summaries=self.memory.summaries)
+            plan = await self.planner.acall(query=query, memory_tree=memory_tree)
         
         logger.info(f"✅ Plan generated with {len(plan.tasks)} tasks")
         logger.debug(f"Reasoning: {plan.reasoning[:150]}...")
@@ -239,13 +211,14 @@ class LeadAgent(dspy.Module):
         for i, task in enumerate(plan.tasks):
             logger.debug(f"Task {i}: {task.objective[:100]}...")
         
-        # Write plan to memory (non-blocking)
-        plan_key = await self.store_to_memory(self.cycle_idx, "plan", plan)
+        # Write plan to filesystem
+        plan_path = f"cycle_{self.cycle_idx:03d}/{plan.plan_filename}.md"
+        self.fs.write(plan_path, str(plan))
         self.steps_trace.append({
             'cycle': self.cycle_idx,
             'action': 'Planned',
             'summary': f"Generated {len(plan.tasks)} tasks",
-            'memory_key': plan_key
+            'path': plan_path
         })
         
         return plan
@@ -264,8 +237,11 @@ class LeadAgent(dspy.Module):
         logger.info(f"🧠 Starting synthesis phase...")
         logger.debug(f"Synthesizing {len(results)} results")
         
+        # Get updated filesystem structure
+        memory_tree = self.fs.tree()
+        
         with dspy.context(lm=self.synthesizer_lm):
-            decision = await self.synthesizer.acall(query=query, memory_summaries=self.memory.summaries, completed_results=results)
+            decision = await self.synthesizer.acall(query=query, memory_tree=memory_tree, completed_results=results)
         
         logger.info(f"✅ Synthesis completed - Decision: {'DONE' if decision.is_done else 'CONTINUE'}")
         logger.debug(f"Synthesis: {decision.synthesis[:150]}...")
@@ -274,13 +250,14 @@ class LeadAgent(dspy.Module):
             logger.info(f"🔍 Gap analysis: {decision.gap_analysis[:100]}...")
             logger.info(f"🔄 Refined query: {decision.refined_query[:100]}...")
         
-        # Write synthesis to memory (non-blocking)
-        synth_key = await self.store_to_memory(self.cycle_idx, "synthesis", decision)
+        # Write synthesis to filesystem
+        synthesis_path = f"cycle_{self.cycle_idx:03d}/synthesis.md"
+        self.fs.write(synthesis_path, str(decision))
         self.steps_trace.append({
             'cycle': self.cycle_idx,
             'action': 'Synthesized',
             'summary': f"Decision: {'DONE' if decision.is_done else 'CONTINUE'}, {len(results)} results",
-            'memory_key': synth_key
+            'path': synthesis_path
         })
         
         return decision
@@ -297,22 +274,27 @@ class LeadAgent(dspy.Module):
             Markdown formatted final report
         """
         logger.info(f"📄 GENERATING FINAL REPORT...")
-        logger.debug(f"Available memory keys: {len(self.memory.summaries)}")
         logger.debug(f"Steps taken: {len(self.steps_trace)}")
         
-        final_react = dspy.ReAct(FinalReport, tools=[self.tools["memory_read"], self.tools["memory_list"]], max_iters=5)
+        # Get full filesystem structure
+        memory_tree = self.fs.tree(max_depth=None)
+        
+        final_react = dspy.ReAct(FinalReport, tools=[self.tools["filesystem_read"], self.tools["filesystem_tree"]], max_iters=5)
         final_react.adapter = JSONAdapter()  # Use JSONAdapter for compatibility
         
         with dspy.context(lm=self.final_report_lm):
             final_result = await final_react.acall(
                 query=query,
-                memory_summaries=self.memory.summaries,
+                memory_tree=memory_tree,
                 final_synthesis=final_synthesis,
-                steps_trace=self.steps_trace  # Use for indexing memory reads
+                steps_trace=self.steps_trace
             )
         
         logger.info(f"✅ Final report generated!")
         logger.debug(f"Report length: {len(final_result.report)} characters")
+        
+        # Write final report to filesystem
+        self.fs.write("final_report.md", final_result.report)
         
         return final_result.report
 
@@ -356,6 +338,7 @@ class LeadAgent(dspy.Module):
                 logger.info(f"🔄 REFINED QUERY (Cycle {cycle_count}): {current_query}")
             
             result = await self.aforward(current_query)
+            cycle_count += 1
             logger.info(f"📊 CYCLE {cycle_count} COMPLETE - Decision: {'DONE ✅' if result['is_done'] else 'CONTINUE 🔄'}")
             
             
@@ -363,6 +346,11 @@ class LeadAgent(dspy.Module):
         if result["is_done"]:
             final_report = await self.generate_final_report(query, result["synthesis"])
             logger.info("🎉 RESEARCH SESSION COMPLETE!")
+            
+            # Log final memory structure
+            logger.info("\n📁 Final memory structure:")
+            logger.info(self.fs.tree())
+            
             logger.info("=" * 80)
             return final_report
             

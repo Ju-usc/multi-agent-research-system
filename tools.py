@@ -4,10 +4,11 @@ All tools are implemented as classes with __call__ methods.
 """
 
 import asyncio
-from typing import Dict, List, Any
-import wikipedia
+from typing import Dict, List, Any, Optional
+from datetime import datetime
+import re
 from brave_search_python_client import BraveSearch, WebSearchRequest
-from models import Memory
+from models import FileSystem
 
 
 class WebSearchTool:
@@ -26,7 +27,7 @@ class WebSearchTool:
             count: Number of results (default: 5, max: 5)
             
         Returns:
-            Formatted search results
+            Formatted search results as markdown
         """
         if count > 5:
             count = 5
@@ -37,48 +38,22 @@ class WebSearchTool:
             if not response.web or not response.web.results:
                 return f"No results found for '{query}'"
 
-            results = []
+            # Format results as markdown
+            content_lines = [f"# Search results for '{query}'", ""]
+            
             for i, result in enumerate(response.web.results[:count], 1):
-                results.append(f"{i}. {result.title}\\n   {result.description}\\n   {result.url}")
+                content_lines.extend([
+                    f"## {i}. {result.title}",
+                    f"{result.description}",
+                    f"**URL:** {result.url}",
+                    ""
+                ])
             
-            return f"Search results for '{query}':\\n\\n" + "\\n\\n".join(results)
+            return "\n".join(content_lines)
         except Exception as e:
-            return f"Search error: {e}"
+            return f"# Search Error\n\nError searching for '{query}': {e}"
 
 
-class WikipediaSearchTool:
-    """Wikipedia search tool."""
-    
-    def __call__(self, query: str, sentences: int = 3) -> str:
-        """Execute Wikipedia search.
-        
-        Return a concise English summary for `query` (≤ `sentences` sentences).
-        If Wikipedia returns multiple possible pages (disambiguation), we list the
-        top 5 options so the calling agent can decide what to do next.
-        
-        Args:
-            query: Search query
-            sentences: Maximum sentences in summary (default: 3)
-            
-        Returns:
-            Wikipedia summary or disambiguation options
-        """
-        try:
-            wikipedia.set_lang("en")
-            titles = wikipedia.search(query, results=1)
-            if not titles:
-                return f"No Wikipedia article found for '{query}'."
-
-            title = titles[0]
-            summary = wikipedia.summary(title, sentences=sentences, auto_suggest=False)
-            return f"Wikipedia – {title}\\n\\n{summary}"
-
-        except wikipedia.exceptions.DisambiguationError as e:
-            # Show a short disambiguation list
-            opts = "\\n • ".join(e.options[:5])
-            return f"Wikipedia disambiguation for '{query}'. Try one of:\\n • {opts}"
-        except Exception as err:
-            return f"Wikipedia error: {err}"
 
 
 class ParallelSearchTool:
@@ -95,7 +70,7 @@ class ParallelSearchTool:
             calls: List of dicts with 'tool_name' and 'args' keys
                 Example: [
                     {"tool_name": "web_search", "args": {"query": "Python programming"}},
-                    {"tool_name": "wikipedia_search", "args": {"query": "Python", "sentences": 5}}
+                    {"tool_name": "memory_read", "args": {"key": "1-plan"}}
                 ]
         
         Returns:
@@ -128,28 +103,31 @@ class ParallelSearchTool:
         ]
 
 
-class MemoryTool:
-    """Unified memory tool with multiple operations."""
+class FileSystemTool:
+    """Tool for interacting with the research filesystem."""
     
-    def __init__(self, memory: Memory):
-        """Initialize with memory instance."""
-        self.memory = memory
+    def __init__(self, fs: FileSystem):
+        """Initialize with FileSystem instance."""
+        self.fs = fs
     
-    def read(self, key: str) -> str:
-        """Read memory content by key.
+    def tree(self, max_depth: int = 3) -> str:
+        """Show filesystem structure.
         
         Args:
-            key: Memory key (e.g., '1-plan', '1-synthesis', '1-task-0')
+            max_depth: Maximum depth to display (default: 3)
             
         Returns:
-            Full stored content or error message if not found
+            ASCII tree representation of research memory
         """
-        return self.memory.read(key)
+        return self.fs.tree(max_depth)
     
-    def list(self) -> str:
-        """List all available memory keys.
+    def read(self, path: str) -> str:
+        """Read file content by path.
         
+        Args:
+            path: Relative path from memory root (e.g., 'cycle_001/plan.md')
+            
         Returns:
-            Formatted string with all available keys
+            File content or error message if not found
         """
-        return self.memory.list_keys()
+        return self.fs.read(path)

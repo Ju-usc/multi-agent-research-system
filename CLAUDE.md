@@ -39,7 +39,7 @@ multi-agent-research-system/
 - **agent.py**: Refactored orchestration system - implements LeadAgent with clean separation of concerns through helper methods for planning, execution, and synthesis
 - **config.py**: Centralized configuration for environment variables, model constants, and logging setup
 - **models.py**: All Pydantic models (SubagentTask, SubagentResult, Memory) and DSPy signatures in one place
-- **tools.py**: Class-based tool implementations (WebSearchTool, WikipediaSearchTool, MemoryTool) with async support
+- **tools.py**: Class-based tool implementations (WebSearchTool, MemoryTool) with async support
 - **utils.py**: Helper functions including prediction_to_json and Langfuse observability setup
 - **eval.py**: Evaluation pipeline that wraps LeadAgent in DSPy's Evaluate framework, implements answer correctness metrics, and supports multi-threaded evaluation
 - **dataset.py**: Handles BrowseComp dataset operations including downloading, XOR decryption with canary checking, and conversion to DSPy Examples
