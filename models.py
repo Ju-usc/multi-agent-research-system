@@ -33,74 +33,7 @@ class SubagentResult(BaseModel):
     debug_info: Optional[List[str]] = Field(default=None, description="Optional list of raw tool call traces for debugging")
 
 
-class Memory(BaseModel):
-    """In-memory store for research artifacts with lightweight summaries."""
-    store: Dict[str, str] = Field(default_factory=dict, description="Full JSON/text storage")
-    summaries: Dict[str, str] = Field(default_factory=dict, description="Condensed index cards to reference the memory storage")
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self._summarizer_lm = dspy.LM(
-            model=SMALL_MODEL,
-            api_key=OPENROUTER_API_KEY,
-            api_base=OPENROUTER_BASE_URL,
-            temperature=0.3,
-            max_tokens=SMALL_MODEL_MAX_TOKENS,
-        )
-        self._summarizer = dspy.Predict(MemorySummary)
-
-    async def summarize(self, text: str) -> str:
-        """Create a concise summary for the index card."""
-        with dspy.settings.context(lm=self._summarizer_lm):
-            result = await self._summarizer.acall(raw_context=text)
-            return result.summary
-        
-    async def write(self, cycle: int, type: str, content: str, task_id: Optional[int] = None) -> str:
-        """Write content to memory and create summary index card.
-        
-        Args:
-            cycle: Current cycle index
-            type: Stage type ('plan', 'task', 'synthesis')
-            content: Full content to store (typically JSON)
-            task_id: Optional task ID for subagent results
-            
-        Returns:
-            Key used to store the content
-        """
-        # Build deterministic key
-        key = f"{cycle}-{type}" if task_id is None else f"{cycle}-{type}-{task_id}"
-        
-        # Store full content
-        self.store[key] = content
-        self.summaries[key] = await self.summarize(content)
-        return key
-    
-    def read(self, key: str) -> str:
-        """Retrieve full content by key.
-        
-        Args:
-            key: Memory key (e.g., '1-plan', '2-task-3')
-            
-        Returns:
-            Full stored content or error message if not found
-        """
-        return self.store.get(key, f"[ERROR] Key not found: {key}")
-    
-    def list_keys(self) -> str:
-        """List all available memory keys for debugging."""
-        if not self.store:
-            return "No memory records available yet."
-        
-        keys = sorted(self.store.keys())
-        return f"Available memory keys: {', '.join(keys)}"
-
-
-# ---------- DSPy Signatures ----------
-
-class MemorySummary(dspy.Signature):
-    """Summarize the raw context in a way to easily retrieve and distil the most important information"""
-    raw_context: str = dspy.InputField(desc="The raw context to summarize")
-    summary: str = dspy.OutputField(desc="The summary of the raw context")    
+# ---------- DSPy Signatures ----------    
 
 
 class PlanResearch(dspy.Signature):
