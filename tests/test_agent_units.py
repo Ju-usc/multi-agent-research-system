@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 from agent import LeadAgent
-from models import SubagentTask, SubagentResult, Memory
+from models import SubagentTask, SubagentResult, FileSystem
 import json
 
 
@@ -172,10 +172,10 @@ class TestExecuteTasksParallel:
             assert results[1].task_id == 3
     
     @pytest.mark.asyncio
-    async def test_execute_tasks_parallel_memory_storage(self, lead_agent, mock_tasks):
-        """Test that results are stored in memory."""
+    async def test_execute_tasks_parallel_filesystem_storage(self, lead_agent, mock_tasks):
+        """Test that results are stored in filesystem."""
         mock_results = [
-            SubagentResult(task_id=1, summary="Summary 1", finding="Finding 1")
+            SubagentResult(task_id=1, task_name="test_task", summary="Summary 1", finding="Finding 1")
         ]
         
         with patch.object(lead_agent, 'execute_subagent_task', new=AsyncMock()) as mock_execute:
@@ -183,15 +183,15 @@ class TestExecuteTasksParallel:
             
             _ = await lead_agent.execute_tasks_parallel(mock_tasks[:1])
             
-            # Check memory was updated
-            assert len(lead_agent.memory.store) > 0
-            # Memory key format: '{cycle}-task-{task_id}'
-            memory_keys = list(lead_agent.memory.store.keys())
-            assert any('task-1' in key for key in memory_keys)
+            # Check filesystem was updated
+            result_path = f"cycle_{lead_agent.cycle_idx:03d}/test_task/result.md"
+            assert lead_agent.fs.exists(result_path)
+            content = lead_agent.fs.read(result_path)
+            assert "Summary 1" in content
 
 
-class TestStoreToMemory:
-    """Test suite for store_to_memory method."""
+class TestFileSystemOperations:
+    """Test suite for filesystem operations."""
     
     @pytest.fixture
     def lead_agent(self):
@@ -201,95 +201,41 @@ class TestStoreToMemory:
             return agent
     
     @pytest.mark.asyncio
-    async def test_store_to_memory_basic(self, lead_agent):
-        """Test basic memory storage."""
-        key = await lead_agent.store_to_memory(
-            cycle=1,
-            type="test",
-            content="Test content"
-        )
+    async def test_filesystem_write_read(self, lead_agent):
+        """Test basic filesystem write and read operations."""
+        path = "test/content.md"
+        content = "Test content"
         
-        assert key == "1-test"
-        assert lead_agent.memory.store[key] == "Test content"
+        # Write content
+        lead_agent.fs.write(path, content)
+        
+        # Read content
+        result = lead_agent.fs.read(path)
+        assert result == content
     
     @pytest.mark.asyncio
-    async def test_store_to_memory_with_task_id(self, lead_agent):
-        """Test memory storage with task ID."""
-        key = await lead_agent.store_to_memory(
-            cycle=1,
-            type="result",
-            content="Test content",
-            task_id=5
-        )
+    async def test_filesystem_tree_structure(self, lead_agent):
+        """Test filesystem tree structure display."""
+        # Write test files
+        lead_agent.fs.write("cycle_001/plan.md", "Plan content")
+        lead_agent.fs.write("cycle_001/task1/result.md", "Result content")
         
-        assert key == "1-result-5"
-        assert lead_agent.memory.store[key] == "Test content"
+        tree = lead_agent.fs.tree()
+        assert "cycle_001/" in tree
+        assert "plan.md" in tree
+        assert "task1/" in tree
     
     @pytest.mark.asyncio
-    async def test_store_to_memory_json_conversion(self, lead_agent):
-        """Test JSON conversion for predictions."""
-        # Create a mock prediction that has _store attribute
-        class MockPrediction:
-            def __init__(self):
-                self._store = {"test": "data"}
+    async def test_filesystem_exists_check(self, lead_agent):
+        """Test filesystem path existence checking."""
+        path = "test/exists.md"
         
-        mock_prediction = MockPrediction()
+        # Initially doesn't exist
+        assert not lead_agent.fs.exists(path)
         
-        with patch('agent.prediction_to_json', return_value='{"test": "data"}') as mock_json:
-            key = await lead_agent.store_to_memory(
-                cycle=1,
-                type="prediction",
-                content=mock_prediction
-            )
-            
-            assert key == "1-prediction"
-            assert lead_agent.memory.store[key] == '{"test": "data"}'
-            mock_json.assert_called_once_with(mock_prediction)
-    
-    @pytest.mark.asyncio
-    async def test_store_to_memory_pydantic_conversion(self, lead_agent):
-        """Test Pydantic model conversion."""
-        task = SubagentTask(
-            task_id=1,
-            objective="Test",
-            tool_guidance={"web_search": "test"},
-            tool_budget=5,
-            expected_output="output"
-        )
-        
-        key = await lead_agent.store_to_memory(
-            cycle=1,
-            type="task",
-            content=task
-        )
-        
-        stored_content = json.loads(lead_agent.memory.store[key])
-        assert stored_content["task_id"] == 1
-        assert stored_content["objective"] == "Test"
-    
-    @pytest.mark.asyncio
-    async def test_store_to_memory_with_summary(self, lead_agent):
-        """Test that summaries are created for stored content."""
-        # Patch the summarize method on the Memory class itself
-        original_summarize = Memory.summarize
-        
-        async def mock_summarize(_, __):
-            return "Test summary"
-        
-        Memory.summarize = mock_summarize
-        
-        try:
-            key = await lead_agent.store_to_memory(
-                cycle=1,
-                type="test",
-                content="Long test content that needs summarization"
-            )
-            
-            assert key == "1-test"
-            assert lead_agent.memory.summaries[key] == "Test summary"
-        finally:
-            # Restore original method
-            Memory.summarize = original_summarize
+        # Write and check again
+        lead_agent.fs.write(path, "content")
+        assert lead_agent.fs.exists(path)
 
 
 class TestPlanResearch:
@@ -325,9 +271,9 @@ class TestPlanResearch:
             assert result == mock_plan
             mock_plan_call.assert_called_once()
             
-            # Check that plan was stored in memory
-            memory_keys = list(lead_agent.memory.store.keys())
-            assert any('plan' in key for key in memory_keys)
+            # Check that plan was stored in filesystem
+            plan_path = f"cycle_{lead_agent.cycle_idx:03d}/{mock_prediction.plan_filename}.md"
+            assert lead_agent.fs.exists(plan_path)
     
     @pytest.mark.asyncio
     async def test_plan_research_updates_trace(self, lead_agent):
@@ -387,9 +333,9 @@ class TestSynthesizeResults:
             assert result == mock_synthesis
             mock_synth_call.assert_called_once()
             
-            # Check that synthesis was stored in memory
-            memory_keys = list(lead_agent.memory.store.keys())
-            assert any('synthesis' in key for key in memory_keys)
+            # Check that synthesis was stored in filesystem
+            synthesis_path = f"cycle_{lead_agent.cycle_idx:03d}/synthesis.md"
+            assert lead_agent.fs.exists(synthesis_path)
     
     @pytest.mark.asyncio
     async def test_synthesize_results_updates_trace(self, lead_agent, mock_results):
@@ -586,17 +532,18 @@ class TestIntegration:
                     assert result['results'][0].task_id == 2
     
     @pytest.mark.asyncio
-    async def test_memory_persistence(self, lead_agent):
-        """Test that memory persists across cycles."""
-        query = "Test memory"
+    async def test_filesystem_persistence(self, lead_agent):
+        """Test that filesystem persists across cycles."""
+        query = "Test filesystem"
         
-        # Store initial data in memory
-        await lead_agent.store_to_memory(0, "initial", "Initial data")
+        # Store initial data in filesystem
+        lead_agent.fs.write("initial_data.md", "Initial data")
         
         # Mock simple flow
         mock_plan = MagicMock()
         mock_plan.reasoning = "Test"
         mock_plan.tasks = []
+        mock_plan.plan_filename = "test_plan"
         
         mock_synthesis = MagicMock()
         mock_synthesis.is_done = True
@@ -608,10 +555,12 @@ class TestIntegration:
                 
                 await lead_agent.aforward(query)
                 
-                # Check initial data still in memory
-                assert "0-initial" in lead_agent.memory.store
-                assert lead_agent.memory.store["0-initial"] == "Initial data"
+                # Check initial data still in filesystem
+                assert lead_agent.fs.exists("initial_data.md")
+                assert lead_agent.fs.read("initial_data.md") == "Initial data"
                 
                 # Check new data was added
-                assert any('plan' in key for key in lead_agent.memory.store.keys())
-                assert any('synthesis' in key for key in lead_agent.memory.store.keys())
+                plan_path = f"cycle_{lead_agent.cycle_idx:03d}/test_plan.md"
+                synthesis_path = f"cycle_{lead_agent.cycle_idx:03d}/synthesis.md"
+                assert lead_agent.fs.exists(plan_path)
+                assert lead_agent.fs.exists(synthesis_path)

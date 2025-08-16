@@ -5,7 +5,7 @@ import dspy
 import warnings
 import logging
 from agent import LeadAgent
-from models import SubagentTask, SubagentResult, Memory
+from models import SubagentTask, SubagentResult, FileSystem
 import asyncio
 from dspy.datasets import BrowseCompDataset
 from eval import run_browsecomp_evaluation
