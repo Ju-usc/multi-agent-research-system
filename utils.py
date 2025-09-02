@@ -4,6 +4,8 @@ Utility functions for the multi-agent research system
 
 import os
 import json
+import logging
+from functools import wraps
 from typing import Any
 from dotenv import load_dotenv
 from pydantic import BaseModel
@@ -81,3 +83,17 @@ def prediction_to_markdown(obj: Any, title: str | None = None) -> str:
     lines.append(body)
     lines.append("```")
     return "\n".join(lines)
+
+
+def log_call(func):
+    """Log entry and exit of async functions to cut boilerplate."""
+
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        logger = logging.getLogger(func.__module__)
+        logger.info("Starting %s", func.__name__)
+        result = await func(*args, **kwargs)
+        logger.info("Finished %s", func.__name__)
+        return result
+
+    return wrapper
