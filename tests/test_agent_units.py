@@ -1,10 +1,12 @@
-"""Unit tests for refactored LeadAgent methods."""
+"""Unit tests for refactored LeadAgent methods (FileSystem-based)."""
 
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
-from agent import LeadAgent
-from models import SubagentTask, SubagentResult, Memory
-import json
+import importlib
+import sys
+import types
+from models import SubagentTask, SubagentResult
+import utils as _utils
 
 
 class TestExecuteSubagentTask:
@@ -12,8 +14,12 @@ class TestExecuteSubagentTask:
     
     @pytest.fixture
     def lead_agent(self):
-        """Create a LeadAgent instance for testing."""
-        with patch('agent.setup_langfuse'):
+        """Create a LeadAgent instance for testing without Langfuse side effects."""
+        fake_langfuse = types.SimpleNamespace(observe=lambda *a, **k: (lambda f: f))
+        sys.modules['langfuse'] = fake_langfuse
+        with patch.object(_utils, 'setup_langfuse', return_value=None):
+            agent_module = importlib.import_module('agent')
+            LeadAgent = getattr(agent_module, 'LeadAgent')
             agent = LeadAgent()
             return agent
     
@@ -21,7 +27,7 @@ class TestExecuteSubagentTask:
     def mock_task(self):
         """Create a mock SubagentTask."""
         return SubagentTask(
-            task_id=1,
+            task_name="test-task-1",
             objective="Test objective",
             tool_guidance={"web_search": "Search for test info"},
             tool_budget=5,
@@ -41,14 +47,7 @@ class TestExecuteSubagentTask:
         """Test successful execution of a subagent task."""
         # Mock the ReAct predict to return a successful result
         mock_result = SubagentResult(
-            task_id=1,
-            summary="Test summary",
-            finding="Test finding",
-            debug_info=["debug1", "debug2"]
-        )
-        
-        mock_result = SubagentResult(
-            task_id=1,
+            task_name=mock_task.task_name,
             summary="Test summary",
             finding="Test finding"
         )
@@ -63,7 +62,7 @@ class TestExecuteSubagentTask:
             result = await lead_agent.execute_subagent_task(mock_task, mock_subagent_lm)
             
             assert result is not None
-            assert result.task_id == 1
+            assert result.task_name == mock_task.task_name
             assert result.summary == "Test summary"
             assert result.finding == "Test finding"
     
@@ -83,7 +82,7 @@ class TestExecuteSubagentTask:
     async def test_execute_subagent_task_with_tools(self, lead_agent, mock_task, mock_subagent_lm):
         """Test that tools are properly configured for subagent."""
         mock_result = SubagentResult(
-            task_id=1,
+            task_name=mock_task.task_name,
             summary="Test summary",
             finding="Test finding"
         )
@@ -97,9 +96,10 @@ class TestExecuteSubagentTask:
             # Check that ReAct is called with the right tools
             def check_tools(*_, **kwargs):
                 tools = kwargs.get('tools', [])
-                # Should have web_search and memory tools
-                assert any(hasattr(tool, 'name') and 'search' in tool.name for tool in tools)
-                assert any(hasattr(tool, 'name') and 'memory' in tool.name for tool in tools)
+                # Should include web_search and filesystem tools
+                assert any(getattr(tool, 'name', '') == 'web_search' for tool in tools)
+                assert any(getattr(tool, 'name', '') == 'filesystem_read' for tool in tools)
+                assert any(getattr(tool, 'name', '') == 'filesystem_tree' for tool in tools)
                 return mock_react
                 
             mock_react_class.side_effect = check_tools
@@ -112,8 +112,12 @@ class TestExecuteTasksParallel:
     
     @pytest.fixture
     def lead_agent(self):
-        """Create a LeadAgent instance for testing."""
-        with patch('agent.setup_langfuse'):
+        """Create a LeadAgent instance for testing without Langfuse side effects."""
+        fake_langfuse = types.SimpleNamespace(observe=lambda *a, **k: (lambda f: f))
+        sys.modules['langfuse'] = fake_langfuse
+        with patch.object(_utils, 'setup_langfuse', return_value=None):
+            agent_module = importlib.import_module('agent')
+            LeadAgent = getattr(agent_module, 'LeadAgent')
             agent = LeadAgent()
             return agent
     
@@ -122,7 +126,7 @@ class TestExecuteTasksParallel:
         """Create mock SubagentTasks."""
         return [
             SubagentTask(
-                task_id=i,
+                task_name=f"task-{i}",
                 objective=f"Test objective {i}",
                 tool_guidance={"web_search": f"Search for test {i}"},
                 tool_budget=5,
@@ -137,7 +141,7 @@ class TestExecuteTasksParallel:
         """Test parallel execution with all tasks succeeding."""
         mock_results = [
             SubagentResult(
-                task_id=i,
+                task_name=f"task-{i}",
                 summary=f"Summary {i}",
                 finding=f"Finding {i}"
             )
@@ -157,9 +161,9 @@ class TestExecuteTasksParallel:
     async def test_execute_tasks_parallel_partial_failure(self, lead_agent, mock_tasks):
         """Test parallel execution with some tasks failing."""
         mock_results = [
-            SubagentResult(task_id=1, summary="Summary 1", finding="Finding 1"),
+            SubagentResult(task_name="task-1", summary="Summary 1", finding="Finding 1"),
             None,  # Failed task
-            SubagentResult(task_id=3, summary="Summary 3", finding="Finding 3")
+            SubagentResult(task_name="task-3", summary="Summary 3", finding="Finding 3")
         ]
         
         with patch.object(lead_agent, 'execute_subagent_task', new=AsyncMock()) as mock_execute:
@@ -168,128 +172,111 @@ class TestExecuteTasksParallel:
             results = await lead_agent.execute_tasks_parallel(mock_tasks)
             
             assert len(results) == 2  # Only successful results
-            assert results[0].task_id == 1
-            assert results[1].task_id == 3
+            assert results[0].task_name == "task-1"
+            assert results[1].task_name == "task-3"
     
     @pytest.mark.asyncio
     async def test_execute_tasks_parallel_memory_storage(self, lead_agent, mock_tasks):
         """Test that results are stored in memory."""
         mock_results = [
-            SubagentResult(task_id=1, summary="Summary 1", finding="Finding 1")
+            SubagentResult(task_name="task-1", summary="Summary 1", finding="Finding 1")
         ]
         
         with patch.object(lead_agent, 'execute_subagent_task', new=AsyncMock()) as mock_execute:
             mock_execute.side_effect = mock_results
             
+            lead_agent.cycle_idx = 1
             _ = await lead_agent.execute_tasks_parallel(mock_tasks[:1])
             
-            # Check memory was updated
-            assert len(lead_agent.memory.store) > 0
-            # Memory key format: '{cycle}-task-{task_id}'
-            memory_keys = list(lead_agent.memory.store.keys())
-            assert any('task-1' in key for key in memory_keys)
+            # Check filesystem was updated
+            tree = lead_agent.fs.tree(max_depth=None)
+            assert "cycle_001/" in tree
+            assert "cycle_001/task-1/result.md" in tree
 
 
-class TestStoreToMemory:
-    """Test suite for store_to_memory method."""
-    
+class TestAforwardFlow:
     @pytest.fixture
     def lead_agent(self):
-        """Create a LeadAgent instance for testing."""
-        with patch('agent.setup_langfuse'):
-            agent = LeadAgent()
-            return agent
-    
+        fake_langfuse = types.SimpleNamespace(observe=lambda *a, **k: (lambda f: f))
+        sys.modules['langfuse'] = fake_langfuse
+        with patch.object(_utils, 'setup_langfuse', return_value=None):
+            agent_module = importlib.import_module('agent')
+            LeadAgent = getattr(agent_module, 'LeadAgent')
+            return LeadAgent()
+
     @pytest.mark.asyncio
-    async def test_store_to_memory_basic(self, lead_agent):
-        """Test basic memory storage."""
-        key = await lead_agent.store_to_memory(
-            cycle=1,
-            type="test",
-            content="Test content"
-        )
-        
-        assert key == "1-test"
-        assert lead_agent.memory.store[key] == "Test content"
-    
-    @pytest.mark.asyncio
-    async def test_store_to_memory_with_task_id(self, lead_agent):
-        """Test memory storage with task ID."""
-        key = await lead_agent.store_to_memory(
-            cycle=1,
-            type="result",
-            content="Test content",
-            task_id=5
-        )
-        
-        assert key == "1-result-5"
-        assert lead_agent.memory.store[key] == "Test content"
-    
-    @pytest.mark.asyncio
-    async def test_store_to_memory_json_conversion(self, lead_agent):
-        """Test JSON conversion for predictions."""
-        # Create a mock prediction that has _store attribute
-        class MockPrediction:
-            def __init__(self):
-                self._store = {"test": "data"}
-        
-        mock_prediction = MockPrediction()
-        
-        with patch('agent.prediction_to_json', return_value='{"test": "data"}') as mock_json:
-            key = await lead_agent.store_to_memory(
-                cycle=1,
-                type="prediction",
-                content=mock_prediction
+    async def test_aforward_two_cycles(self, lead_agent):
+        """Simulate two cycles: continue then done."""
+        query = "Compare Python vs JavaScript"
+
+        # First cycle plan
+        plan1 = MagicMock()
+        plan1.reasoning = "Research Python"
+        plan1.tasks = [
+            SubagentTask(
+                task_name="task-1",
+                objective="Research Python async",
+                tool_guidance={"web_search": "Python async"},
+                tool_budget=5,
+                expected_output="Python async features"
             )
-            
-            assert key == "1-prediction"
-            assert lead_agent.memory.store[key] == '{"test": "data"}'
-            mock_json.assert_called_once_with(mock_prediction)
-    
-    @pytest.mark.asyncio
-    async def test_store_to_memory_pydantic_conversion(self, lead_agent):
-        """Test Pydantic model conversion."""
-        task = SubagentTask(
-            task_id=1,
-            objective="Test",
-            tool_guidance={"web_search": "test"},
-            tool_budget=5,
-            expected_output="output"
+        ]
+        plan1.plan_filename = "compare-python-javascript"
+
+        # First cycle result
+        result1 = SubagentResult(
+            task_name="task-1",
+            summary="Python summary",
+            finding="Python details..."
         )
-        
-        key = await lead_agent.store_to_memory(
-            cycle=1,
-            type="task",
-            content=task
-        )
-        
-        stored_content = json.loads(lead_agent.memory.store[key])
-        assert stored_content["task_id"] == 1
-        assert stored_content["objective"] == "Test"
-    
-    @pytest.mark.asyncio
-    async def test_store_to_memory_with_summary(self, lead_agent):
-        """Test that summaries are created for stored content."""
-        # Patch the summarize method on the Memory class itself
-        original_summarize = Memory.summarize
-        
-        async def mock_summarize(_, __):
-            return "Test summary"
-        
-        Memory.summarize = mock_summarize
-        
-        try:
-            key = await lead_agent.store_to_memory(
-                cycle=1,
-                type="test",
-                content="Long test content that needs summarization"
+
+        # First cycle synthesis: continue
+        synthesis1 = MagicMock()
+        synthesis1.is_done = False
+        synthesis1.reasoning = "Need JavaScript info"
+        synthesis1.synthesis = "Python research complete, need JavaScript"
+        synthesis1.gap_analysis = "Missing JS"
+        synthesis1.refined_query = query
+
+        # Second cycle plan
+        plan2 = MagicMock()
+        plan2.reasoning = "Research JavaScript"
+        plan2.tasks = [
+            SubagentTask(
+                task_name="task-2",
+                objective="Research JavaScript features",
+                tool_guidance={"web_search": "JavaScript programming"},
+                tool_budget=5,
+                expected_output="JavaScript features"
             )
-            
-            assert key == "1-test"
-            assert lead_agent.memory.summaries[key] == "Test summary"
-        finally:
-            # Restore original method
-            Memory.summarize = original_summarize
+        ]
+        plan2.plan_filename = "compare-python-javascript"
+
+        # Second cycle result
+        result2 = SubagentResult(
+            task_name="task-2",
+            summary="JavaScript is web language",
+            finding="JavaScript details..."
+        )
+
+        # Final synthesis
+        synthesis2 = MagicMock()
+        synthesis2.is_done = True
+        synthesis2.reasoning = "Have complete comparison"
+        synthesis2.synthesis = "Python vs JavaScript comparison complete"
+
+        # Orchestrate two cycles
+        with patch.object(lead_agent.planner, 'acall', new=AsyncMock(side_effect=[plan1, plan2])):
+            with patch.object(lead_agent, 'execute_subagent_task', new=AsyncMock(side_effect=[result1, result2])):
+                with patch.object(lead_agent.synthesizer, 'acall', new=AsyncMock(side_effect=[synthesis1, synthesis2])):
+                    # First cycle
+                    res1 = await lead_agent.aforward(query)
+                    assert res1['is_done'] is False
+                    assert lead_agent.cycle_idx == 1
+                    # Second cycle
+                    res2 = await lead_agent.aforward(query)
+                    assert res2['is_done'] is True
+                    assert lead_agent.cycle_idx == 2
 
 
 class TestPlanResearch:
@@ -297,8 +284,12 @@ class TestPlanResearch:
     
     @pytest.fixture
     def lead_agent(self):
-        """Create a LeadAgent instance for testing."""
-        with patch('agent.setup_langfuse'):
+        """Create a LeadAgent instance for testing without Langfuse side effects."""
+        fake_langfuse = types.SimpleNamespace(observe=lambda *a, **k: (lambda f: f))
+        sys.modules['langfuse'] = fake_langfuse
+        with patch.object(_utils, 'setup_langfuse', return_value=None):
+            agent_module = importlib.import_module('agent')
+            LeadAgent = getattr(agent_module, 'LeadAgent')
             agent = LeadAgent()
             return agent
     
@@ -309,13 +300,14 @@ class TestPlanResearch:
         mock_plan.reasoning = "Test reasoning"
         mock_plan.tasks = [
             SubagentTask(
-                task_id=1,
+                task_name="task-1",
                 objective="Test objective",
                 tool_guidance={"web_search": "test"},
                 tool_budget=5,
                 expected_output="output"
             )
         ]
+        mock_plan.plan_filename = "test-plan"
         
         with patch.object(lead_agent.planner, 'acall', new=AsyncMock()) as mock_plan_call:
             mock_plan_call.return_value = mock_plan
@@ -325,24 +317,22 @@ class TestPlanResearch:
             assert result == mock_plan
             mock_plan_call.assert_called_once()
             
-            # Check that plan was stored in memory
-            memory_keys = list(lead_agent.memory.store.keys())
-            assert any('plan' in key for key in memory_keys)
+            # Check that plan file was written
+            tree = lead_agent.fs.tree(max_depth=None)
+            assert "cycle_000/test-plan.md" in tree
     
     @pytest.mark.asyncio
-    async def test_plan_research_updates_trace(self, lead_agent):
-        """Test that planning updates the steps trace."""
+    async def test_plan_research_writes_plan_file_again(self, lead_agent):
+        """Ensure planning writes a plan file to the filesystem (no steps trace)."""
         mock_plan = MagicMock()
         mock_plan.reasoning = "Test reasoning"
         mock_plan.tasks = []
-        
-        with patch.object(lead_agent.planner, 'acall', new=AsyncMock()) as mock_plan_call:
-            mock_plan_call.return_value = mock_plan
-            
+        mock_plan.plan_filename = "test-plan-2"
+
+        with patch.object(lead_agent.planner, 'acall', new=AsyncMock(return_value=mock_plan)):
             await lead_agent.plan_research("Test query")
-            
-            assert len(lead_agent.steps_trace) > 0
-            assert lead_agent.steps_trace[-1]['action'] == 'Planned'
+            tree = lead_agent.fs.tree(max_depth=None)
+            assert "cycle_000/test-plan-2.md" in tree
 
 
 class TestSynthesizeResults:
@@ -350,8 +340,12 @@ class TestSynthesizeResults:
     
     @pytest.fixture
     def lead_agent(self):
-        """Create a LeadAgent instance for testing."""
-        with patch('agent.setup_langfuse'):
+        """Create a LeadAgent instance for testing without Langfuse side effects."""
+        fake_langfuse = types.SimpleNamespace(observe=lambda *a, **k: (lambda f: f))
+        sys.modules['langfuse'] = fake_langfuse
+        with patch.object(_utils, 'setup_langfuse', return_value=None):
+            agent_module = importlib.import_module('agent')
+            LeadAgent = getattr(agent_module, 'LeadAgent')
             agent = LeadAgent()
             return agent
     
@@ -360,12 +354,12 @@ class TestSynthesizeResults:
         """Create mock SubagentResults."""
         return [
             SubagentResult(
-                task_id=1,
+                task_name="task-1",
                 summary="Summary 1",
                 finding="Finding 1"
             ),
             SubagentResult(
-                task_id=2,
+                task_name="task-2",
                 summary="Summary 2", 
                 finding="Finding 2"
             )
@@ -387,25 +381,25 @@ class TestSynthesizeResults:
             assert result == mock_synthesis
             mock_synth_call.assert_called_once()
             
-            # Check that synthesis was stored in memory
-            memory_keys = list(lead_agent.memory.store.keys())
-            assert any('synthesis' in key for key in memory_keys)
+            # Check that synthesis was written to filesystem
+            lead_agent.cycle_idx = 1
+            _ = await lead_agent.synthesize_results("Test query", mock_results)
+            tree = lead_agent.fs.tree(max_depth=None)
+            assert "cycle_001/synthesis.md" in tree
     
     @pytest.mark.asyncio
-    async def test_synthesize_results_updates_trace(self, lead_agent, mock_results):
-        """Test that synthesis updates the steps trace."""
+    async def test_synthesize_results_writes_file_again(self, lead_agent, mock_results):
+        """Ensure synthesis writes a synthesis file to the filesystem (no steps trace)."""
         mock_synthesis = MagicMock()
         mock_synthesis.decision = "continue"
         mock_synthesis.reasoning = "Test reasoning"
         mock_synthesis.synthesis = "Test synthesis"
-        
-        with patch.object(lead_agent.synthesizer, 'acall', new=AsyncMock()) as mock_synth_call:
-            mock_synth_call.return_value = mock_synthesis
-            
+
+        with patch.object(lead_agent.synthesizer, 'acall', new=AsyncMock(return_value=mock_synthesis)):
+            lead_agent.cycle_idx = 1
             await lead_agent.synthesize_results("Test query", mock_results)
-            
-            assert len(lead_agent.steps_trace) > 0
-            assert lead_agent.steps_trace[-1]['action'] == 'Synthesized'
+            tree = lead_agent.fs.tree(max_depth=None)
+            assert "cycle_001/synthesis.md" in tree
 
 
 class TestIntegration:
@@ -413,10 +407,13 @@ class TestIntegration:
     
     @pytest.fixture
     def lead_agent(self):
-        """Create a LeadAgent instance for testing."""
-        with patch('agent.setup_langfuse'):
-            agent = LeadAgent()
-            return agent
+        """Create a LeadAgent instance for testing without Langfuse side effects."""
+        fake_langfuse = types.SimpleNamespace(observe=lambda *a, **k: (lambda f: f))
+        sys.modules['langfuse'] = fake_langfuse
+        with patch.object(_utils, 'setup_langfuse', return_value=None):
+            agent_module = importlib.import_module('agent')
+            LeadAgent = getattr(agent_module, 'LeadAgent')
+            return LeadAgent()
     
     @pytest.mark.asyncio
     async def test_full_agent_flow(self, lead_agent):
@@ -428,7 +425,7 @@ class TestIntegration:
         mock_plan.reasoning = "Need to find capital of France"
         mock_plan.tasks = [
             SubagentTask(
-                task_id=1,
+                task_name="task-1",
                 objective="Find the capital of France",
                 tool_guidance={"web_search": "Search for France capital"},
                 tool_budget=5,
@@ -438,7 +435,7 @@ class TestIntegration:
         
         # Mock subagent result
         mock_result = SubagentResult(
-            task_id=1,
+            task_name="task-1",
             summary="Paris is the capital of France",
             finding="Paris is the capital and largest city of France"
         )
@@ -471,7 +468,7 @@ class TestIntegration:
         plan1.reasoning = "Need to research both languages"
         plan1.subagent_tasks = [
             SubagentTask(
-                task_id=1,
+                task_name="task-1",
                 objective="Research Python features",
                 tool_guidance={"web_search": "Python programming language"},
                 tool_budget=5,
@@ -481,7 +478,7 @@ class TestIntegration:
         
         # First cycle result
         result1 = SubagentResult(
-            task_id=1,
+            task_name="task-1",
             summary="Python is high-level language",
             finding="Python details..."
         )
@@ -497,7 +494,7 @@ class TestIntegration:
         plan2.reasoning = "Research JavaScript"
         plan2.subagent_tasks = [
             SubagentTask(
-                task_id=2,
+                task_name="task-2",
                 objective="Research JavaScript features",
                 tool_guidance={"web_search": "JavaScript programming"},
                 tool_budget=5,
@@ -507,7 +504,7 @@ class TestIntegration:
         
         # Second cycle result
         result2 = SubagentResult(
-            task_id=2,
+            task_name="task-2",
             summary="JavaScript is web language",
             finding="JavaScript details..."
         )
@@ -543,14 +540,14 @@ class TestIntegration:
         mock_plan.reasoning = "Test plan"
         mock_plan.tasks = [
             SubagentTask(
-                task_id=1,
+                task_name="task-1",
                 objective="Task that will fail",
                 tool_guidance={"web_search": "test"},
                 tool_budget=5,
                 expected_output="output"
             ),
             SubagentTask(
-                task_id=2,
+                task_name="task-2",
                 objective="Task that will succeed",
                 tool_guidance={"web_search": "test"},
                 tool_budget=5,
@@ -562,7 +559,7 @@ class TestIntegration:
         results = [
             None,  # Failed task
             SubagentResult(
-                task_id=2,
+                task_name="task-2",
                 summary="Success",
                 finding="Successful finding"
             )
@@ -583,15 +580,15 @@ class TestIntegration:
                     # Should continue despite one failure
                     assert result is not None
                     assert len(result['results']) == 1  # Only successful result
-                    assert result['results'][0].task_id == 2
+                    assert result['results'][0].task_name == "task-2"
     
     @pytest.mark.asyncio
-    async def test_memory_persistence(self, lead_agent):
-        """Test that memory persists across cycles."""
+    async def test_filesystem_persistence(self, lead_agent):
+        """Test that filesystem artifacts persist across cycles."""
         query = "Test memory"
         
-        # Store initial data in memory
-        await lead_agent.store_to_memory(0, "initial", "Initial data")
+        # Pre-seed filesystem with a file
+        lead_agent.fs.write("custom/initial.md", "Initial data")
         
         # Mock simple flow
         mock_plan = MagicMock()
@@ -602,16 +599,15 @@ class TestIntegration:
         mock_synthesis.is_done = True
         mock_synthesis.reasoning = "Done"
         mock_synthesis.synthesis = "Complete"
-        
         with patch.object(lead_agent.planner, 'acall', new=AsyncMock(return_value=mock_plan)):
             with patch.object(lead_agent.synthesizer, 'acall', new=AsyncMock(return_value=mock_synthesis)):
-                
                 await lead_agent.aforward(query)
-                
-                # Check initial data still in memory
-                assert "0-initial" in lead_agent.memory.store
-                assert lead_agent.memory.store["0-initial"] == "Initial data"
-                
-                # Check new data was added
-                assert any('plan' in key for key in lead_agent.memory.store.keys())
-                assert any('synthesis' in key for key in lead_agent.memory.store.keys())
+
+        # Check initial data still present
+        assert lead_agent.fs.exists("custom/initial.md")
+        assert lead_agent.fs.read("custom/initial.md") == "Initial data"
+
+        # Check new data was added to filesystem
+        tree = lead_agent.fs.tree(max_depth=None)
+        assert "cycle_001/test-plan.md" in tree
+        assert "cycle_001/synthesis.md" in tree

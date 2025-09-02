@@ -12,8 +12,8 @@ This system implements a lead-subagent research pattern where:
 ## Features
 
 - 🔄 Async parallel execution of research tasks
-- 🧠 In-memory artifact storage with automatic summarization
-- 🔍 Web search and Wikipedia integration
+- 🧠 Filesystem artifact storage with Markdown outputs
+- 🔍 Web search integration
 - 📊 Iterative refinement based on synthesis decisions
 - 🎯 Task-specific tool guidance and budgets
 
@@ -69,8 +69,7 @@ uv run pytest tests/
 
 - dspy-ai
 - python-dotenv
-- wikipedia-api
-- brave-search-python
+- brave-search-python-client
 - pandas (for BrowseComp dataset)
 
 ## License

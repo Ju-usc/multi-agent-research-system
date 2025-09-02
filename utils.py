@@ -4,6 +4,7 @@ Utility functions for the multi-agent research system
 
 import os
 import json
+from typing import Any
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
@@ -51,24 +52,32 @@ def setup_langfuse():
     return langfuse
 
 
-def prediction_to_json(prediction) -> str:
-    """Convert DSPy Prediction object to JSON string.
-    
-    Args:
-        prediction: DSPy Prediction object
-        
-    Returns:
-        JSON string representation of the prediction
+ 
+
+
+def prediction_to_markdown(obj: Any, title: str | None = None) -> str:
+    """Reliable, single-output renderer: one JSON block (optionally titled).
+
+    Uses json.dumps with a small default serializer so we don't branch over
+    types manually. This keeps the function short and predictable.
     """
-    data = {}
-    # Extract all fields from the prediction's _store (always exists on dspy.Prediction)
-    for key, value in prediction._store.items():
-        # Handle Pydantic models (all inherit from BaseModel which has model_dump)
-        if isinstance(value, BaseModel):
-            data[key] = value.model_dump()
-        # Handle lists of Pydantic models
-        elif isinstance(value, list) and value and isinstance(value[0], BaseModel):
-            data[key] = [item.model_dump() for item in value]
-        else:
-            data[key] = value
-    return json.dumps(data)
+
+    def _default(o: Any):
+        # dspy.Prediction
+        if hasattr(o, "_store") and isinstance(getattr(o, "_store"), dict):
+            return o._store
+        # Pydantic v2 BaseModel
+        if isinstance(o, BaseModel):
+            return o.model_dump()
+        # Last resort: string representation
+        return str(o)
+
+    body = json.dumps(obj, default=_default, indent=2, ensure_ascii=False)
+    lines: list[str] = []
+    if title:
+        lines.append(f"# {title}")
+        lines.append("")
+    lines.append("```json")
+    lines.append(body)
+    lines.append("```")
+    return "\n".join(lines)

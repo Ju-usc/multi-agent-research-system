@@ -4,6 +4,7 @@ All tools are implemented as classes with __call__ methods.
 """
 
 import asyncio
+import functools
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 import re
@@ -91,7 +92,7 @@ class ParallelSearchTool:
             else:
                 # Run sync functions in executor to avoid blocking
                 loop = asyncio.get_event_loop()
-                return await loop.run_in_executor(None, tool, **args)
+                return await loop.run_in_executor(None, functools.partial(tool, **args))
         
         # Execute all calls in parallel
         results = await asyncio.gather(*[execute_call(call) for call in calls], return_exceptions=True)

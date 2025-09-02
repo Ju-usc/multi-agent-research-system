@@ -6,7 +6,7 @@ Implements Anthropic's orchestrator-worker architecture with async DSPy
 import asyncio
 from typing import List, Dict, Optional, Any
 import dspy
-from dspy.adapters import JSONAdapter, TwoStepAdapter
+from dspy.adapters import JSONAdapter
 import logging
 
 # Import from new modules
@@ -19,9 +19,9 @@ from models import (
     PlanResearch, ExecuteSubagentTask, SynthesizeAndDecide, FinalReport
 )
 from tools import (
-    WebSearchTool, ParallelSearchTool, FileSystemTool
+    WebSearchTool, FileSystemTool
 )
-from utils import setup_langfuse, prediction_to_json
+from utils import setup_langfuse, prediction_to_markdown
 from langfuse import observe
 
 # Setup logging
@@ -31,9 +31,7 @@ logger = logging.getLogger(__name__)
 langfuse = setup_langfuse()
 # =====================================
 
-
-
-# ---------- Lead Agent DSPy Module ----------
+ # ---------- Lead Agent DSPy Module ----------
 
 class LeadAgent(dspy.Module):
     """Lead agent: plans once, launches parallel subagents, synthesizes, then decides."""
@@ -42,7 +40,6 @@ class LeadAgent(dspy.Module):
         super().__init__()
         self.fs = FileSystem()
         self.cycle_idx = 0  # Track cycles
-        self.steps_trace: List[Dict[str, Any]] = []  # High-level trace of steps
         self.tool_logs: Dict[str, List[str]] = {}  # Store tool logs per task
 
         # Initialize tool instances
@@ -174,9 +171,9 @@ class LeadAgent(dspy.Module):
                 results.append(r)
                 # Update task_name in result
                 r.task_name = tasks[i].task_name
-                # Write result to filesystem
+                # Write result to filesystem (generic markdown rendering)
                 result_path = f"cycle_{self.cycle_idx:03d}/{r.task_name}/result.md"
-                self.fs.write(result_path, str(r))
+                self.fs.write(result_path, prediction_to_markdown(r, title=r.task_name))
                 logger.info(f"✅ Subagent {i} completed - Task: {r.task_name}")
                 logger.debug(f"Summary: {r.summary[:100]}...")
             else:
@@ -213,13 +210,7 @@ class LeadAgent(dspy.Module):
         
         # Write plan to filesystem
         plan_path = f"cycle_{self.cycle_idx:03d}/{plan.plan_filename}.md"
-        self.fs.write(plan_path, str(plan))
-        self.steps_trace.append({
-            'cycle': self.cycle_idx,
-            'action': 'Planned',
-            'summary': f"Generated {len(plan.tasks)} tasks",
-            'path': plan_path
-        })
+        self.fs.write(plan_path, prediction_to_markdown(plan, title="Plan"))
         
         return plan
     
@@ -249,16 +240,10 @@ class LeadAgent(dspy.Module):
         if not decision.is_done:
             logger.info(f"🔍 Gap analysis: {decision.gap_analysis[:100]}...")
             logger.info(f"🔄 Refined query: {decision.refined_query[:100]}...")
-        
+    
         # Write synthesis to filesystem
         synthesis_path = f"cycle_{self.cycle_idx:03d}/synthesis.md"
-        self.fs.write(synthesis_path, str(decision))
-        self.steps_trace.append({
-            'cycle': self.cycle_idx,
-            'action': 'Synthesized',
-            'summary': f"Decision: {'DONE' if decision.is_done else 'CONTINUE'}, {len(results)} results",
-            'path': synthesis_path
-        })
+        self.fs.write(synthesis_path, prediction_to_markdown(decision, title="Synthesis"))
         
         return decision
 
@@ -274,7 +259,6 @@ class LeadAgent(dspy.Module):
             Markdown formatted final report
         """
         logger.info(f"📄 GENERATING FINAL REPORT...")
-        logger.debug(f"Steps taken: {len(self.steps_trace)}")
         
         # Get full filesystem structure
         memory_tree = self.fs.tree(max_depth=None)
@@ -287,7 +271,6 @@ class LeadAgent(dspy.Module):
                 query=query,
                 memory_tree=memory_tree,
                 final_synthesis=final_synthesis,
-                steps_trace=self.steps_trace
             )
         
         logger.info(f"✅ Final report generated!")
@@ -360,6 +343,13 @@ class LeadAgent(dspy.Module):
 
 
 if __name__ == "__main__":
+    # Configure logging outside library modules to avoid side effects
+    try:
+        from logging_config import configure_logging
+        configure_logging()
+    except Exception:
+        pass
+    
     logger.info("🤖 Initializing LeadAgent...")
     agent = LeadAgent()
     logger.info("✅ Agent initialized successfully!")

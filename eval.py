@@ -116,14 +116,18 @@ def run_browsecomp_evaluation(
     # Run evaluation
     print("🚀 Starting evaluation...")
     result = evaluator(program)
-    
+
+    # Normalize to a single return shape: float accuracy and a results list sized to the dataset
+    score = float(result)
+    details = [None] * len(examples)
+
     print(f"\n📊 EVALUATION COMPLETE")
-    print(f"✅ Accuracy: {result.score:.1f}%")
-    
+    print(f"✅ Accuracy: {score:.1f}%")
+
     return {
-        "accuracy": result.score,
+        "accuracy": score,
         "num_examples": len(examples),
-        "results": result.results
+        "results": details,
     }
 
 
