@@ -140,6 +140,7 @@ class LeadAgent(dspy.Module):
             logger.error(f"Task {task.task_name} error: {str(e)}")
             return None
 
+    @log_call
     @observe(name="execute_parallel_tasks", capture_input=True, capture_output=True)
     async def execute_tasks_parallel(self, tasks: List[SubagentTask]) -> List[SubagentResult]:
         """Execute multiple subagent tasks in parallel and collect results.
@@ -174,6 +175,7 @@ class LeadAgent(dspy.Module):
         
         return results
 
+    @log_call
     @observe(name="plan_research", capture_input=True, capture_output=True)
     async def plan_research(self, query: str) -> dspy.Prediction:
         """Execute planning phase and return plan.
