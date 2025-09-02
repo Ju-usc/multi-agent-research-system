@@ -21,7 +21,7 @@ from models import (
 from tools import (
     WebSearchTool, FileSystemTool
 )
-from utils import setup_langfuse, prediction_to_markdown
+from utils import setup_langfuse, prediction_to_markdown, log_call
 from langfuse import observe
 
 # Setup logging
@@ -140,6 +140,7 @@ class LeadAgent(dspy.Module):
             logger.error(f"Task {task.task_name} error: {str(e)}")
             return None
 
+    @log_call
     @observe(name="execute_parallel_tasks", capture_input=True, capture_output=True)
     async def execute_tasks_parallel(self, tasks: List[SubagentTask]) -> List[SubagentResult]:
         """Execute multiple subagent tasks in parallel and collect results.
@@ -150,16 +151,11 @@ class LeadAgent(dspy.Module):
         Returns:
             List of valid SubagentResult objects (excludes failures)
         """
-        logger.info(f"🚀 Launching {len(tasks)} subagents in parallel...")
-        
         # Create task calls
-        task_calls = []
-        for task in tasks:
-            task_calls.append(self.execute_subagent_task(task, self.subagent_lm))
-        
+        task_calls = [self.execute_subagent_task(task, self.subagent_lm) for task in tasks]
+
         # Execute all tasks in parallel with error handling
         raw_results = await asyncio.gather(*task_calls, return_exceptions=True)
-        logger.info(f"📊 Processing {len(raw_results)} subagent results...")
         
         # Filter and process valid results
         results = []
@@ -174,14 +170,12 @@ class LeadAgent(dspy.Module):
                 # Write result to filesystem (generic markdown rendering)
                 result_path = f"cycle_{self.cycle_idx:03d}/{r.task_name}/result.md"
                 self.fs.write(result_path, prediction_to_markdown(r, title=r.task_name))
-                logger.info(f"✅ Subagent {i} completed - Task: {r.task_name}")
-                logger.debug(f"Summary: {r.summary[:100]}...")
             else:
                 logger.warning(f"Subagent {i} returned invalid result")
         
-        logger.info(f"📈 Successfully collected {len(results)} valid results")
         return results
 
+    @log_call
     @observe(name="plan_research", capture_input=True, capture_output=True)
     async def plan_research(self, query: str) -> dspy.Prediction:
         """Execute planning phase and return plan.
@@ -192,21 +186,11 @@ class LeadAgent(dspy.Module):
         Returns:
             PlanResult prediction containing tasks and reasoning
         """
-        logger.info(f"🔍 CYCLE {self.cycle_idx + 1}: Starting planning phase...")
-        logger.debug(f"Query: {query}")
-        
         # Get current filesystem structure
         memory_tree = self.fs.tree()
-        logger.debug(f"Current memory structure:\n{memory_tree}")
-        
+
         with dspy.context(lm=self.planner_lm):
             plan = await self.planner.acall(query=query, memory_tree=memory_tree)
-        
-        logger.info(f"✅ Plan generated with {len(plan.tasks)} tasks")
-        logger.debug(f"Reasoning: {plan.reasoning[:150]}...")
-        
-        for i, task in enumerate(plan.tasks):
-            logger.debug(f"Task {i}: {task.objective[:100]}...")
         
         # Write plan to filesystem
         plan_path = f"cycle_{self.cycle_idx:03d}/{plan.plan_filename}.md"
@@ -214,6 +198,7 @@ class LeadAgent(dspy.Module):
         
         return plan
     
+    @log_call
     @observe(name="synthesize", capture_input=True, capture_output=True)
     async def synthesize_results(self, query: str, results: List[SubagentResult]) -> dspy.Prediction:
         """Execute synthesis phase and return decision.
@@ -225,28 +210,21 @@ class LeadAgent(dspy.Module):
         Returns:
             SynthesisResult prediction containing decision and synthesis
         """
-        logger.info(f"🧠 Starting synthesis phase...")
-        logger.debug(f"Synthesizing {len(results)} results")
-        
         # Get updated filesystem structure
         memory_tree = self.fs.tree()
-        
+
         with dspy.context(lm=self.synthesizer_lm):
-            decision = await self.synthesizer.acall(query=query, memory_tree=memory_tree, completed_results=results)
-        
-        logger.info(f"✅ Synthesis completed - Decision: {'DONE' if decision.is_done else 'CONTINUE'}")
-        logger.debug(f"Synthesis: {decision.synthesis[:150]}...")
-        
-        if not decision.is_done:
-            logger.info(f"🔍 Gap analysis: {decision.gap_analysis[:100]}...")
-            logger.info(f"🔄 Refined query: {decision.refined_query[:100]}...")
-    
+            decision = await self.synthesizer.acall(
+                query=query, memory_tree=memory_tree, completed_results=results
+            )
+
         # Write synthesis to filesystem
         synthesis_path = f"cycle_{self.cycle_idx:03d}/synthesis.md"
         self.fs.write(synthesis_path, prediction_to_markdown(decision, title="Synthesis"))
-        
+
         return decision
 
+    @log_call
     @observe(name="generate_final_report", capture_input=True, capture_output=True)
     async def generate_final_report(self, query: str, final_synthesis: str) -> str:
         """Generate final markdown report from memory.
@@ -258,8 +236,6 @@ class LeadAgent(dspy.Module):
         Returns:
             Markdown formatted final report
         """
-        logger.info(f"📄 GENERATING FINAL REPORT...")
-        
         # Get full filesystem structure
         memory_tree = self.fs.tree(max_depth=None)
         
@@ -272,15 +248,13 @@ class LeadAgent(dspy.Module):
                 memory_tree=memory_tree,
                 final_synthesis=final_synthesis,
             )
-        
-        logger.info(f"✅ Final report generated!")
-        logger.debug(f"Report length: {len(final_result.report)} characters")
-        
+
         # Write final report to filesystem
         self.fs.write("final_report.md", final_result.report)
-        
+
         return final_result.report
 
+    @log_call
     @observe(name="lead_agent_main", capture_input=True, capture_output=True)
     async def aforward(self, query: str):
         """Plan → execute tasks in parallel → synthesize/decide (single cycle)."""
