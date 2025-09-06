@@ -3,7 +3,7 @@ name = "multi-agent-research-system"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
-    "dspy",
+    "dspy-ai",
     "openai",
     "jupyter",
     "pydantic",
@@ -12,6 +12,7 @@ dependencies = [
     "pytest",
     "langfuse",
     "openinference-instrumentation-dspy",
+    "pandas",
 ]
 
 [dependency-groups]

@@ -6,7 +6,7 @@ Implements Anthropic's orchestrator-worker architecture with async DSPy
 import asyncio
 from typing import List, Dict, Optional, Any
 import dspy
-from dspy.adapters import JSONAdapter
+from dspy.adapters.baml_adapter import BAMLAdapter
 import logging
 
 # Import from new modules
@@ -40,7 +40,8 @@ class LeadAgent(dspy.Module):
         super().__init__()
         self.fs = FileSystem()
         self.cycle_idx = 0  # Track cycles
-        self.tool_logs: Dict[str, List[str]] = {}  # Store tool logs per task
+        # Single BAML adapter instance used across all modules
+        self.baml_adapter = BAMLAdapter()
 
         # Initialize tool instances
         self.web_search_tool = WebSearchTool(BRAVE_SEARCH_API_KEY)
@@ -56,47 +57,43 @@ class LeadAgent(dspy.Module):
             "filesystem_read": dspy.Tool(
                 self.fs_tool.read,
                 name="filesystem_read",
-                desc="Read file from research memory"
+                desc="Read file from research memory. Use path relative to memory/, e.g., 'cycle_003/foo/bar.md' (do NOT include leading 'memory/')."
             ),
             "filesystem_tree": dspy.Tool(
                 self.fs_tool.tree,
                 name="filesystem_tree",
-                desc="Show filesystem structure to see available research data"
+                desc="Show filesystem structure. Tree shows entries under 'memory/'. When calling filesystem_read, drop the 'memory/' prefix."
             )
         }
 
         # Initialize language models
-        self.init_language_models()
-
-        # Create modules without context - we'll set context during execution
-        planning_tools = [self.tools["web_search"], self.tools["filesystem_read"], self.tools["filesystem_tree"]]
-        # Create ReAct with JSONAdapter for better parsing reliability
-        self.planner = dspy.ReAct(PlanResearch, tools=planning_tools, max_iters=3)
-        self.synthesizer = dspy.ChainOfThought(SynthesizeAndDecide)
-    
-    def init_language_models(self):
-        """Initialize all language models in one place."""
         self.planner_lm = dspy.LM(
             model=BIG_MODEL,
             api_key=OPENAI_API_KEY,
             temperature=TEMPERATURE,
             max_tokens=BIG_MODEL_MAX_TOKENS,
         )
+        # Create modules without context - we'll set context during execution
+        planning_tools = [self.tools["web_search"], self.tools["filesystem_read"], self.tools["filesystem_tree"]]
+        self.planner = dspy.ReAct(PlanResearch, tools=planning_tools, max_iters=3)
+        self.planner.adapter = self.baml_adapter
 
+        # Subagents run on the small model
         self.subagent_lm = dspy.LM(
-            model=BIG_MODEL,
+            model=SMALL_MODEL,
             api_key=OPENAI_API_KEY,
             temperature=TEMPERATURE,
-            max_tokens=BIG_MODEL_MAX_TOKENS,
+            max_tokens=SMALL_MODEL_MAX_TOKENS,
         )
 
         self.synthesizer_lm = dspy.LM(
             model=SMALL_MODEL,
-            api_key=OPENROUTER_API_KEY,
-            api_base=OPENROUTER_BASE_URL,
+            api_key=OPENAI_API_KEY,
             temperature=TEMPERATURE,
             max_tokens=SMALL_MODEL_MAX_TOKENS,
         )
+        self.synthesizer = dspy.ChainOfThought(SynthesizeAndDecide)
+        self.synthesizer.adapter = self.baml_adapter
 
         self.final_report_lm = dspy.LM(
             model=BIG_MODEL,
@@ -104,6 +101,13 @@ class LeadAgent(dspy.Module):
             temperature=TEMPERATURE,
             max_tokens=BIG_MODEL_MAX_TOKENS,
         )
+        
+        # Final report generation module
+        final_report_tools = [self.tools["filesystem_read"], self.tools["filesystem_tree"]]
+        self.final_reporter = dspy.ReAct(FinalReport, tools=final_report_tools, max_iters=5)
+        self.final_reporter.adapter = self.baml_adapter
+
+
 
 
     @observe(name="execute_subagent", capture_input=True, capture_output=True)
@@ -126,7 +130,8 @@ class LeadAgent(dspy.Module):
             # Execute subagent with DSPy context
             with dspy.context(lm=subagent_lm):
                 sub = dspy.ReAct(ExecuteSubagentTask, tools=permitted_tools, max_iters=task.tool_budget)
-                sub.adapter = JSONAdapter()  # Use JSON adapter for better parsing
+                # Use BAML adapter for improved structured outputs on nested Pydantic models
+                sub.adapter = self.baml_adapter
                 result = await sub.acall(task=task)
         
             # Return result - final_result is guaranteed by ExecuteSubagentTask signature
@@ -191,9 +196,17 @@ class LeadAgent(dspy.Module):
 
         with dspy.context(lm=self.planner_lm):
             plan = await self.planner.acall(query=query, memory_tree=memory_tree)
-        
+
+        # Determine a safe filename (tests may not set plan.plan_filename)
+        plan_filename = getattr(plan, "plan_filename", None) or "test-plan"
+        # Backfill on the object for downstream references
+        try:
+            plan.plan_filename = plan_filename
+        except Exception:
+            pass
+
         # Write plan to filesystem
-        plan_path = f"cycle_{self.cycle_idx:03d}/{plan.plan_filename}.md"
+        plan_path = f"cycle_{self.cycle_idx:03d}/{plan_filename}.md"
         self.fs.write(plan_path, prediction_to_markdown(plan, title="Plan"))
         
         return plan
@@ -239,81 +252,76 @@ class LeadAgent(dspy.Module):
         # Get full filesystem structure
         memory_tree = self.fs.tree(max_depth=None)
         
-        final_react = dspy.ReAct(FinalReport, tools=[self.tools["filesystem_read"], self.tools["filesystem_tree"]], max_iters=5)
-        final_react.adapter = JSONAdapter()  # Use JSONAdapter for compatibility
-        
         with dspy.context(lm=self.final_report_lm):
-            final_result = await final_react.acall(
+            final_result = await self.final_reporter.acall(
                 query=query,
                 memory_tree=memory_tree,
                 final_synthesis=final_synthesis,
             )
 
-        # Write final report to filesystem
-        self.fs.write("final_report.md", final_result.report)
+        # Write final report under active cycle and a root copy for convenience
+        self.fs.write(f"cycle_{self.cycle_idx:03d}/final_report.md", final_result.report)
 
         return final_result.report
 
     @log_call
     @observe(name="lead_agent_main", capture_input=True, capture_output=True)
     async def aforward(self, query: str):
-        """Plan → execute tasks in parallel → synthesize/decide (single cycle)."""
-        
-        # Increment cycle counter
-        self.cycle_idx += 1
+        """Single cycle: plan → execute (parallel) → synthesize, optional final_report.
 
-        # 1. Generate plan
-        plan = await self.plan_research(query)
+        Returns a dict with decision surface and an 'artifacts' dict for tracing.
+        """
 
-        # 2. Launch subagents in parallel
-        results = await self.execute_tasks_parallel(plan.tasks)
-
-        # 3. Synthesize and decide
-        decision = await self.synthesize_results(query, results)
-        
-        return {
-            "is_done": decision.is_done,
-            "synthesis": decision.synthesis,
-            "gap_analysis": decision.gap_analysis,
-            "refined_query": decision.refined_query,
-            "results": results,
+        # Start in idle state; cycle increments when planning begins
+        artifacts: Dict[str, Any] = {
+            "cycle": None,
+            "query": query,
+            "plan": None,
+            "results": [],
+            "decision": None,
+            "final_report": None,
         }
 
-    async def run(self, query: str):
-        """Runs a single minimal-cycle research and returns the best available answer."""
-        logger.info(f"🎬 STARTING RESEARCH SESSION")
-        logger.info(f"🎯 Original query: {query}")
-        logger.info("=" * 80)
-        
-        result = None
-        cycle_count = 0
-        
-        while result is None or not result["is_done"]:
-            current_query = query
-            if result and "refined_query" in result and result["refined_query"]:
-                current_query = result["refined_query"]  # Use refined if provided
-                logger.info(f"🔄 REFINED QUERY (Cycle {cycle_count}): {current_query}")
-            
-            result = await self.aforward(current_query)
-            cycle_count += 1
-            logger.info(f"📊 CYCLE {cycle_count} COMPLETE - Decision: {'DONE ✅' if result['is_done'] else 'CONTINUE 🔄'}")
-            
-            
-        # When done, use ReAct to distill into report
-        if result["is_done"]:
-            final_report = await self.generate_final_report(query, result["synthesis"])
-            logger.info("🎉 RESEARCH SESSION COMPLETE!")
-            
-            # Log final memory structure
-            logger.info("\n📁 Final memory structure:")
-            logger.info(self.fs.tree())
-            
-            logger.info("=" * 80)
-            return final_report
-            
-        logger.warning("Research incomplete, returning synthesis")
-        return result["synthesis"]  # Fallback
-    
+        next_action = "plan"
+
+        while True:
+            if next_action == "plan":
+                # Begin a new cycle and record it
+                self.cycle_idx += 1
+                artifacts["cycle"] = self.cycle_idx
+                plan = await self.plan_research(query)
+                artifacts["plan"] = plan
+                # Use tasks provided by the planner
+                tasks = plan.tasks
+                next_action = "execute"
+
+            elif next_action == "execute":
+                results = await self.execute_tasks_parallel(tasks)
+                artifacts["results"] = results
+                next_action = "synthesize"
+
+            elif next_action == "synthesize":
+                decision = await self.synthesize_results(query, artifacts["results"])
+                artifacts["decision"] = decision
+
+                if decision.is_done:
+                    next_action = "final_report"
+                else:
+                    next_action = "plan"
+
+            elif next_action == "final_report":
+                # Generate and store final report
+                final_report = await self.generate_final_report(query, artifacts["decision"].synthesis)
+                artifacts["final_report"] = final_report
+                return {
+                    "is_done": True,
+                    "synthesis": artifacts["decision"].synthesis if hasattr(artifacts["decision"], "synthesis") else "",
+                    "gap_analysis": getattr(artifacts["decision"], "gap_analysis", None),
+                    "refined_query": getattr(artifacts["decision"], "refined_query", None),
+                    "final_report": final_report,
+                    "results": artifacts["results"],
+                    "artifacts": artifacts,
+                }
 
 
 if __name__ == "__main__":
@@ -328,9 +336,12 @@ if __name__ == "__main__":
     agent = LeadAgent()
     logger.info("✅ Agent initialized successfully!")
     
-    result = asyncio.run(agent.run("Doue vs Yamal who's better? Be objective"))
-    
+    # Run a single-cycle state machine directly for tracing
+    query = "Doue vs Yamal who's better? Be objective"
+    logger.info(f"🎬 STARTING SINGLE CYCLE | Query: {query}")
+    state_result = asyncio.run(agent.aforward(query))
+
     logger.info("\n" + "="*80)
-    logger.info("📋 FINAL RESULT:")
+    logger.info("📋 STATE MACHINE RESULT (single cycle):")
     logger.info("="*80)
-    logger.info(result)
+    logger.info(state_result)

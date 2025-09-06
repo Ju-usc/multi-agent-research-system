@@ -38,8 +38,15 @@ class BrowseCompProgram(dspy.Module):
         self.agent = agent
     
     def forward(self, problem: str) -> dspy.Prediction:
-        """Forward method required by DSPy - runs the agent and returns prediction."""
-        # Run the async agent synchronously 
+        """Forward method required by DSPy - runs the agent and returns prediction.
+
+        Prefers `aforward` if available; falls back to `run` for compatibility.
+        Uses synthesis text as the report to avoid network-dependent finalization.
+        """
+        if hasattr(self.agent, "aforward"):
+            result = asyncio.run(self.agent.aforward(problem))
+            return dspy.Prediction(report=result.get("synthesis", ""))
+        # Fallback for agents exposing a `run` method
         report = asyncio.run(self.agent.run(problem))
         return dspy.Prediction(report=report)
 

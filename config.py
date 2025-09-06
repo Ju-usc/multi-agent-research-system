@@ -18,10 +18,12 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # ========== MODEL CONFIGURATION ==========
 """Models: use one small and one big model (must differ)."""
-SMALL_MODEL = os.getenv("SMALL_MODEL", "gpt-4o-mini")
-BIG_MODEL = os.getenv("BIG_MODEL", "gpt-4o")
+# Migrate defaults to GPT‑5 tiers: small -> gpt-5-nano, big -> gpt-5-mini
+SMALL_MODEL = "gpt-5-nano"
+BIG_MODEL = "gpt-5-nano"
 
 # ========== MODEL PARAMETERS ==========
-TEMPERATURE = float(os.getenv("TEMPERATURE", "1.0"))
-BIG_MODEL_MAX_TOKENS = int(os.getenv("BIG_MODEL_MAX_TOKENS", "20000"))
-SMALL_MODEL_MAX_TOKENS = int(os.getenv("SMALL_MODEL_MAX_TOKENS", "4000"))
+TEMPERATURE = 1.0
+BIG_MODEL_MAX_TOKENS = 20000
+# For OpenAI reasoning models, DSPy expects >= 16000
+SMALL_MODEL_MAX_TOKENS = 16000

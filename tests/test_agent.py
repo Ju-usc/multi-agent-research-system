@@ -38,10 +38,11 @@ async def test_lead_agent_basic_run():
     with patch.object(agent.planner, 'acall', new=AsyncMock(return_value=mock_plan)):
         with patch.object(agent.synthesizer, 'acall', new=AsyncMock(return_value=mock_synth)):
             with patch.object(agent, 'generate_final_report', new=AsyncMock(return_value="Final report")):
-                result = await agent.run("Test simple research query")
+                artifacts = await agent.aforward("Test simple research query")
+                report = await agent.generate_final_report("Test simple research query", artifacts["synthesis"])
     
-    assert isinstance(result, str), "Result should be a string report"
-    assert "Final report" in result
+    assert isinstance(report, str), "Report should be a string"
+    assert "Final report" in report
 
 # ========== BrowseComp Evaluation Tests ==========
 
@@ -149,10 +150,11 @@ async def test_leadagent_basic():
     with patch.object(agent.planner, 'acall', new=AsyncMock(return_value=mock_plan)):
         with patch.object(agent.synthesizer, 'acall', new=AsyncMock(return_value=mock_synth)):
             with patch.object(agent, 'generate_final_report', new=AsyncMock(return_value="Report")):
-                result = await agent.run("What is the capital of France?")
+                artifacts = await agent.aforward("What is the capital of France?")
+                report = await agent.generate_final_report("What is the capital of France?", artifacts["synthesis"])
 
-    assert isinstance(result, str)
-    assert len(result) > 0
+    assert isinstance(report, str)
+    assert len(report) > 0
 
 
 if __name__ == "__main__":

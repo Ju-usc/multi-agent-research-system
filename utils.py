@@ -58,10 +58,14 @@ def setup_langfuse():
 
 
 def prediction_to_markdown(obj: Any, title: str | None = None) -> str:
-    """Reliable, single-output renderer: one JSON block (optionally titled).
+    """Generic Markdown preview + Raw JSON.
 
-    Uses json.dumps with a small default serializer so we don't branch over
-    types manually. This keeps the function short and predictable.
+    - Serialize once with a small default serializer.
+    - If the JSON parses to a dict, render a simple, uniform Markdown view:
+      each top-level key becomes a section with its value shown in a minimal
+      way (scalars inline, lists as bullets, dicts as one-level bullets).
+    - Always append a Raw JSON section for traceability.
+    - The `title` parameter is ignored for content (kept for API compatibility).
     """
 
     def _default(o: Any):
@@ -74,11 +78,36 @@ def prediction_to_markdown(obj: Any, title: str | None = None) -> str:
         # Last resort: string representation
         return str(o)
 
+    # Serialize once
     body = json.dumps(obj, default=_default, indent=2, ensure_ascii=False)
+
     lines: list[str] = []
-    if title:
-        lines.append(f"# {title}")
-        lines.append("")
+
+    # Try to parse back to a dict for a generic preview
+    parsed = None
+    try:
+        parsed = json.loads(body)
+    except Exception:
+        parsed = None
+
+    if isinstance(parsed, dict):
+        for key, value in parsed.items():
+            lines.append(f"## {key}")
+            if isinstance(value, dict):
+                for sk, sv in value.items():
+                    lines.append(f"- {sk}: {json.dumps(sv, ensure_ascii=False)}")
+                lines.append("")
+            elif isinstance(value, list):
+                for item in value:
+                    lines.append(f"- {json.dumps(item, ensure_ascii=False)}")
+                lines.append("")
+            else:
+                lines.append(str(json.dumps(value, ensure_ascii=False)))
+                lines.append("")
+
+    # Always include raw JSON
+    lines.append("## Raw")
+    lines.append("")
     lines.append("```json")
     lines.append(body)
     lines.append("```")
