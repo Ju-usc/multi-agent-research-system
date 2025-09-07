@@ -1,15 +1,24 @@
 """
 Tool implementations for the multi-agent research system.
-All tools are implemented as classes with __call__ methods.
+All tools are implemented as classes with __call__ methods unless class methods are used to call the tool.
 """
 
 import asyncio
 import functools
 from typing import Dict, List, Any, Optional
 from datetime import datetime
+import logging
 import re
+import json
+import dspy
 from brave_search_python_client import BraveSearch, WebSearchRequest
-from models import FileSystem
+from models import (
+    FileSystem,
+    Todo,
+    SubagentTask,
+    SubagentResult,
+    ExecuteSubagentTask,
+)
 
 
 class WebSearchTool:
@@ -132,3 +141,70 @@ class FileSystemTool:
             File content or error message if not found
         """
         return self.fs.read(path)
+
+
+class TodoListTool:
+    """Run-scoped todo store. Accepts our built Todo model list; minimal and strict."""
+
+    def __init__(self) -> None:
+        self._todos: List[Todo] = []
+
+    def write(self, todos: List[Todo]) -> str:
+        """Replace the todo list with the given list[Todo] and return Json string"""
+        try:
+            self._todos = todos
+            return json.dumps({
+                "success": True,
+                "count": len(self._todos),  
+                "message": f"Updated {len(self._todos)} todos items",
+            })
+            
+            
+        except Exception as e:
+            return f"Error writing todos: {e}"
+        
+    def read(self) -> str:
+        """Return the current todos as Json string"""
+        try:
+            return json.dumps({
+                "success": True,
+                "count": len(self._todos),
+                "message": f"Read {len(self._todos)} todos items",
+                "todos": [t.model_dump() for t in self._todos]
+            })
+        except Exception as e:
+            return f"Error reading todos: {e}"
+
+
+class SubagentTool:
+    """Execute subagent tasks with per-task instruction via with_instruction.
+
+    - Input: tasks: list[SubagentTask]
+    - Prompt source: task.prompt (excluded from task serialization)
+    - Tools: provided by caller (agent-configured allowlist)
+    - Output: SubagentResult or list thereof (via parallel_run)
+    - Persistence: none; caller handles filesystem writes
+    """
+
+    def __init__(self, tools: Dict[str, Any], lm: Any, adapter: Optional[Any] = None) -> None:
+        self._tools = tools
+        self._lm = lm
+        self._adapter = adapter
+    
+    async def run(self, task: SubagentTask) -> SubagentResult:
+        # Prepare instruction-layered signature
+        output_signature = ExecuteSubagentTask.with_instruction(task.prompt)
+
+        try:
+            # Execute with provided LM and optional adapter
+            with dspy.context(lm=self._lm):
+                subAgent = dspy.ReAct(output_signature, tools=self._tools, max_iters=task.tool_budget)
+                subAgent.adapter = self._adapter
+                result = await subAgent.acall(task=task)
+
+            return result.final_result
+        except Exception as e:
+            raise e
+
+    async def parallel_run(self, tasks: List[SubagentTask]) -> List[SubagentResult]:
+        return await asyncio.gather(*[self.run(task) for task in tasks], return_exceptions=True)
