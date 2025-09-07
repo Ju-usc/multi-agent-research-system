@@ -8,7 +8,7 @@ import dspy
 import asyncio
 from typing import Optional, Dict, Any
 from dataset import BrowseCompDataset
-from agent import LeadAgent
+from workflow import LeadAgent
 
 
 class BrowseCompJudge(dspy.Signature):
