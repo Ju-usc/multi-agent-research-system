@@ -18,9 +18,9 @@ class SubagentTask(BaseModel):
         max_length=50,
         pattern="^[a-z0-9-]+$"
     )
-    objective: str = Field(description="Crisp single-focus goal the subagent must accomplish")
-    tool_guidance: Dict[Literal["web_search", "filesystem_read", "filesystem_tree"], str] = Field(description="Mapping of allowed tool names to concise usage instructions")
-    tool_budget: int = Field(default=8, ge=3, le=15, description="Maximum number of tool calls the subagent may issue")
+    prompt: str = Field(description="Prompt for the subagent to complete the task", exclude=True) # exclude prompt as an input field of subagentResult as it is configured directly via instruction 
+    description: str = Field(description="Description of the task")
+    tool_budget: int = Field(default=3, ge=1, le=15, description="Maximum number of tool calls the subagent may issue")
     expected_output: str = Field(description="Exact artifact or information the subagent must return for completion")
     tip: Optional[str] = Field(default=None, description="Optional hint to improve quality or efficiency while executing the task")
 
@@ -30,8 +30,15 @@ class SubagentResult(BaseModel):
     task_name: str = Field(description="Task directory name that produced this result")
     summary: str = Field(description="High-density 2-4 sentence overview of the key findings")
     finding: str = Field(description="Full detailed answer directly addressing the task objective")
-    debug_info: Optional[List[str]] = Field(default=None, description="Optional list of raw tool call traces for debugging")
 
+# ---------- Todo List ----------
+
+class Todo(BaseModel):
+    """Todo list item."""
+    id: str
+    content: str
+    status: Literal["pending", "in_progress", "completed"]
+    priority: Literal["low", "medium", "high"]
 
 # ---------- DSPy Signatures ----------    
 
@@ -154,3 +161,4 @@ class FileSystem:
         if self.root.exists():
             shutil.rmtree(self.root)
         self.root.mkdir(exist_ok=True)
+
