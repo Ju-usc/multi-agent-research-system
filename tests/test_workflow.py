@@ -80,11 +80,11 @@ async def test_end_to_end_single_call(lead_agent):
     with patch.object(lead_agent.planner, 'acall', new=AsyncMock(return_value=mock_plan)):
         with patch.object(lead_agent, 'execute_subagent_task', new=AsyncMock(return_value=mock_result)):
             with patch.object(lead_agent.synthesizer, 'acall', new=AsyncMock(return_value=mock_synthesis)):
-                with patch.object(
-                    lead_agent.final_reporter,
-                    'acall',
-                    new=AsyncMock(return_value=types.SimpleNamespace(report="# Report\nParis")),
-                ):
+                async def fake_final_report(query: str, final_synthesis: str) -> str:
+                    path = f"cycle_{lead_agent.cycle_idx:03d}/final_report.md"
+                    lead_agent.fs.write(path, "# Report\nParis")
+                    return "# Report\nParis"
+                with patch.object(lead_agent, 'generate_final_report', new=fake_final_report):
                     result = await lead_agent.aforward(query)
 
     # Assertions: decision surface

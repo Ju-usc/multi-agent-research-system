@@ -43,8 +43,8 @@ Non‑goals: Human quickstarts, vendor‑specific recipes, or low‑level API do
 
 ## Testing & CI
 - Unit tests per tool (with fakes) and an end‑to‑end async flow test.
-- keep the tests as minimal and clean as possbile.
-- no need to test every single trival details in the code.
+- Keep tests minimal and clean.
+- No need to test every trivial detail.
 - All network usage mocked; tests deterministic and parallel‑friendly.
 - Use `uv` for env and test runs.
 
@@ -53,7 +53,7 @@ Non‑goals: Human quickstarts, vendor‑specific recipes, or low‑level API do
 - Enforce ceilings: tokens, runtime, parallelism; fail safe and explain why.
 
 ## Repository Pointers (for orientation, not coupling)
-- Current mapping: `agent.py` (orchestrates), `tools.py` (tool impls), `models.py` (data/signatures), `config.py` (settings), `tests/` (pytest), `memory/` (artifacts from running the agent).
+- Current mapping: `workflow.py` (orchestrates), `agent.py` (lightweight DSPy wrapper), `tools.py` (tool impls), `models.py` (data/signatures), `config.py` (settings), `tests/` (pytest), `memory/` (artifacts).
 - Treat these as reference anchors; the conceptual contracts above remain stable even if files change.
 
 ## PR Checklist (lightweight)

@@ -58,8 +58,7 @@ def test_browsecomp_metric():
                     reasoning="stubbed",
                     is_correct=is_correct,
                 )
-
-        with patch.object(_dspy, 'ChainOfThought', lambda *a, **k: _FakeJudge()):
+        with patch.object(_dspy, 'ChainOfThought', new=lambda *a, **k: _FakeJudge()):
             example = dspy.Example(problem="What is 2+2?", answer="4")
             assert 0.0 <= browsecomp_metric(example, dspy.Prediction(report="The answer is 4.")) <= 1.0
             assert 0.0 <= browsecomp_metric(example, dspy.Prediction(report="The answer is 5.")) <= 1.0
@@ -81,8 +80,7 @@ def test_browsecomp_evaluation_framework():
                     reasoning="stubbed",
                     is_correct=is_correct,
                 )
-
-        with patch.object(_dspy, 'ChainOfThought', lambda *a, **k: _FakeJudge()):
+        with patch.object(_dspy, 'ChainOfThought', new=lambda *a, **k: _FakeJudge()):
             class FakeAgent:
                 async def run(self, problem: str) -> str:
                     if "2+2" in problem:

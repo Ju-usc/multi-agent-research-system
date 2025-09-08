@@ -4,10 +4,10 @@ A minimal multi-agent research system built with DSPy and OpenRouter, designed t
 
 ## Architecture
 
-This system implements a lead-subagent research pattern where:
-- **Lead Agent**: Plans research tasks, manages memory, and synthesizes results
-- **Subagents**: Execute specific research micro-tasks in parallel
-- **Memory Store**: Maintains research artifacts with lightweight summaries
+This system implements a lead–subagent pattern:
+- **Lead Agent** (`workflow.py`): Plans tasks, launches subagents, and synthesizes results
+- **Subagents**: Execute research micro-tasks in parallel
+- **Memory Store**: Filesystem that keeps artifacts with lightweight summaries
 
 ## Features
 
@@ -16,6 +16,7 @@ This system implements a lead-subagent research pattern where:
 - 🔍 Web search integration
 - 📊 Iterative refinement based on synthesis decisions
 - 🎯 Task-specific tool guidance and budgets
+- 📝 Todo list tool for tracking pending work
 
 ## BrowseComp Evaluation
 
@@ -56,7 +57,7 @@ OPENAI_API_KEY=your_key
 ## Usage
 
 ```bash
-uv run python -c "from agent import LeadAgent; import asyncio; agent = LeadAgent(); print(asyncio.run(agent.run('Your research question here')))"
+uv run python -c "from workflow import LeadAgent; import asyncio; agent = LeadAgent(); print(asyncio.run(agent.aforward('Your research question here')))"
 ```
 
 ## Testing
