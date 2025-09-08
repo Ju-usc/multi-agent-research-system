@@ -304,6 +304,7 @@ class LeadAgent(dspy.Module):
             elif next_action == "final_report":
                 # Generate and store final report
                 final_report = await self.generate_final_report(query, artifacts["decision"].synthesis)
+                self.fs.write(f"cycle_{self.cycle_idx:03d}/final_report.md", final_report)
                 artifacts["final_report"] = final_report
                 return {
                     "is_done": True,

@@ -59,6 +59,24 @@ OPENAI_API_KEY=your_key
 uv run python -c "from agent import LeadAgent; import asyncio; agent = LeadAgent(); print(asyncio.run(agent.run('Your research question here')))"
 ```
 
+## Logging
+
+Use `@log_call` to trace async functions without touching their logic. It logs
+arguments and a JSON snapshot of the return value at debug level. The optional
+`return_attr` dotted path logs a nested attribute instead of the whole object.
+
+```python
+from logging_config import configure_logging
+from utils import log_call
+import asyncio
+
+@log_call(return_attr="prediction.text")
+async def plan(query: str): ...
+
+configure_logging("DEBUG")
+asyncio.run(plan("What is the capital of France?"))
+```
+
 ## Testing
 
 ```bash

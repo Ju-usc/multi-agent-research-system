@@ -40,6 +40,20 @@ Non‑goals: Human quickstarts, vendor‑specific recipes, or low‑level API do
 ## Instrumentation
 - Emit structured events: planning_started, tool_called, synthesis_started, verification_failed, artifact_written.
 - Log JSONL/structured lines safe for CI; redact secrets.
+- For debugging, decorate async functions with `utils.log_call`; set
+  `LOG_LEVEL=DEBUG` or call `configure_logging("DEBUG")` to emit inputs and
+  JSON-serialized results. Pass `return_attr="path.to.attr"` to log a nested
+  field from the returned object.
+
+```python
+from logging_config import configure_logging
+from utils import log_call
+
+@log_call(return_attr="prediction.text")
+async def plan(...): ...
+
+configure_logging("DEBUG")
+```
 
 ## Testing & CI
 - Unit tests per tool (with fakes) and an end‑to‑end async flow test.
