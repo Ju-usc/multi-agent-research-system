@@ -2,9 +2,6 @@ import dspy
 from config import (
     BRAVE_SEARCH_API_KEY, OPENAI_API_KEY, SMALL_MODEL, BIG_MODEL, TEMPERATURE, BIG_MODEL_MAX_TOKENS, SMALL_MODEL_MAX_TOKENS
 )
-from models import (
-    FileSystem, 
-)
 from tools import (
     WebSearchTool, FileSystemTool, TodoListTool
 )
@@ -13,14 +10,14 @@ from dspy.adapters.baml_adapter import BAMLAdapter
 class Agent(dspy.Module):
     def __init__(self):
         super().__init__()
-        self.fs = FileSystem()
         self.cycle_idx = 0  # Track cycles
         # Single BAML adapter instance used across all modules
         self.baml_adapter = BAMLAdapter()
 
         # Initialize tool instances
         self.web_search_tool = WebSearchTool(BRAVE_SEARCH_API_KEY)
-        self.fs_tool = FileSystemTool(self.fs)
+        self.fs_tool = FileSystemTool()
+        self.fs = self.fs_tool
         self.todo_list_tool = TodoListTool()
 
         # Create DSPy tools from class instances

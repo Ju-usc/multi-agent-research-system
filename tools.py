@@ -6,20 +6,18 @@ All tools are implemented as classes with __call__ methods unless class methods 
 import asyncio
 import functools
 from typing import Dict, List, Any, Optional
-from datetime import datetime
-import logging
-import re
 import json
 import dspy
+from pathlib import Path
 from brave_search_python_client import BraveSearch, WebSearchRequest
 from models import (
-    FileSystem,
     Todo,
     SubagentTask,
     SubagentResult,
     ExecuteSubagentTask,
 )
 
+# ---------- WebSearch ----------
 
 class WebSearchTool:
     """Web search tool using Brave Search API."""
@@ -65,6 +63,8 @@ class WebSearchTool:
 
 
 
+
+# ---------- ParallelSearch ----------
 
 class ParallelSearchTool:
     """Execute multiple searches in parallel for efficiency."""
@@ -113,35 +113,75 @@ class ParallelSearchTool:
         ]
 
 
-class FileSystemTool:
-    """Tool for interacting with the research filesystem."""
-    
-    def __init__(self, fs: FileSystem):
-        """Initialize with FileSystem instance."""
-        self.fs = fs
-    
-    def tree(self, max_depth: int = 3) -> str:
-        """Show filesystem structure.
-        
-        Args:
-            max_depth: Maximum depth to display (default: 3)
-            
-        Returns:
-            ASCII tree representation of research memory
-        """
-        return self.fs.tree(max_depth)
-    
-    def read(self, path: str) -> str:
-        """Read file content by path.
-        
-        Args:
-            path: Relative path from memory root (e.g., 'cycle_001/plan.md')
-            
-        Returns:
-            File content or error message if not found
-        """
-        return self.fs.read(path)
 
+# ---------- FileSystem ----------
+
+class FileSystemTool:
+    """File system for research memory.
+
+    - Defaults to root="memory" when no argument is provided
+    - Methods: write, read, exists, tree, clear
+    """
+
+    def __init__(self, root: str = "memory"):
+        self.root = Path(root)
+        self.root.mkdir(exist_ok=True)
+
+        # Cache resolved root for simple path safety checks
+        try:
+            self._resolved_root = self.root.resolve()
+        except Exception:
+            self._resolved_root = self.root
+
+    def write(self, path: str, content: str) -> Path:
+        file_path = self.root / path
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(content)
+        return file_path
+
+    def read(self, path: str) -> str:
+        file_path = self.root / path
+        if not file_path.exists():
+            return f"[ERROR] File not found: {path}"
+        return file_path.read_text()
+
+    def exists(self, path: str) -> bool:
+        return (self.root / path).exists()
+
+    def tree(self, max_depth: Optional[int] = 3) -> str:
+        paths: List[str] = []
+        self._collect_paths(self.root, "", paths, max_depth, 0)
+
+        root_label = f"{str(self.root).rstrip('/')}/"
+        if not paths:
+            return f"{root_label} (empty)"
+        return "\n".join([root_label] + sorted(paths))
+
+    def _collect_paths(self, path: Path, relative_path: str, paths: list,
+                       max_depth: Optional[int], current_depth: int) -> None:
+        if max_depth is not None and current_depth >= max_depth:
+            return
+
+        try:
+            items = sorted(path.iterdir(), key=lambda x: (not x.is_dir(), x.name))
+        except FileNotFoundError:
+            return
+
+        for item in items:
+            item_path = f"{relative_path}{item.name}" if relative_path else item.name
+            if item.is_dir():
+                paths.append(f"{item_path}/")
+                self._collect_paths(item, f"{item_path}/", paths, max_depth, current_depth + 1)
+            else:
+                paths.append(item_path)
+
+    def clear(self) -> None:
+        import shutil
+        if self.root.exists():
+            shutil.rmtree(self.root)
+        self.root.mkdir(exist_ok=True)
+
+# ---------- TodoList ----------
 
 class TodoListTool:
     """Run-scoped todo store. Accepts our built Todo model list; minimal and strict."""
@@ -175,6 +215,8 @@ class TodoListTool:
         except Exception as e:
             return f"Error reading todos: {e}"
 
+
+# ---------- SubagentTool ----------
 
 class SubagentTool:
     """Execute subagent tasks with per-task instruction via with_instruction.

@@ -25,8 +25,9 @@ memory/
 
 ### Implementation
 
-**FileSystem Class** (models.py)
-- Simple wrapper around pathlib
+**FileSystemTool** (tools.py)
+- Canonical filesystem implementation for research memory
+- Default root is `"memory"` via `__init__(root="memory")`
 - Methods: `write()`, `read()`, `tree()`, `exists()`, `clear()`
 - Tree output: Simple path listing for LLM parsing
 

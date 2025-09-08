@@ -15,7 +15,7 @@ from config import (
     SMALL_MODEL, BIG_MODEL, TEMPERATURE, BIG_MODEL_MAX_TOKENS, SMALL_MODEL_MAX_TOKENS
 )
 from models import (
-    SubagentTask, SubagentResult, FileSystem,
+    SubagentTask, SubagentResult,
     PlanResearch, ExecuteSubagentTask, SynthesizeAndDecide, FinalReport
 )
 from tools import (
@@ -38,14 +38,14 @@ class LeadAgent(dspy.Module):
 
     def __init__(self):
         super().__init__()
-        self.fs = FileSystem()
         self.cycle_idx = 0  # Track cycles
         # Single BAML adapter instance used across all modules
         self.baml_adapter = BAMLAdapter()
 
         # Initialize tool instances
         self.web_search_tool = WebSearchTool(BRAVE_SEARCH_API_KEY)
-        self.fs_tool = FileSystemTool(self.fs)
+        self.fs_tool = FileSystemTool()
+        self.fs = self.fs_tool
 
         # Create DSPy tools from class instances
         self.tools = {
