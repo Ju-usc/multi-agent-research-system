@@ -129,9 +129,11 @@ class LeadAgent(dspy.Module):
                 # Use BAML adapter for improved structured outputs on nested Pydantic models
                 sub.adapter = self.baml_adapter
                 result = await sub.acall(task=task)
-            
-  
-            return result.final_result
+
+            final = result.final_result
+            # Ensure task_name comes from the originating task, not the LLM output
+            final.task_name = task.task_name
+            return final
                 
         except Exception as e:
             logger.error(f"Task {task.task_name} error: {str(e)}")
@@ -162,8 +164,6 @@ class LeadAgent(dspy.Module):
                 continue
             if r is not None:
                 results.append(r)
-                # Update task_name in result
-                r.task_name = tasks[i].task_name
                 # Write result to filesystem (generic markdown rendering)
                 result_path = f"cycle_{self.cycle_idx:03d}/{r.task_name}/result.md"
                 self.fs.write(result_path, prediction_to_markdown(r, title=r.task_name))
