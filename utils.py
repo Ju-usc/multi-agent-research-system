@@ -198,14 +198,48 @@ def prediction_to_markdown(obj: Any, title: str | None = None) -> str:
     return "\n".join(lines)
 
 
-def log_call(func):
-    """Log entry and exit of async functions to cut boilerplate."""
+def log_call(func=None, *, return_attr: str | None = None):
+    """Log entry/exit plus debug details for async functions.
+
+    Args:
+        func: Async function being decorated.
+        return_attr: Optional dotted path to log a nested attribute from the
+            returned object instead of the full object.
+
+    Emits the arguments (excluding ``self``) and a JSON representation of the
+    return value (or the specified nested attribute) at DEBUG level so callers
+    can inspect intermediate planning artifacts without polluting core logic.
+    """
+
+    if func is None:
+        return lambda f: log_call(f, return_attr=return_attr)
 
     @wraps(func)
     async def wrapper(*args, **kwargs):
         logger = logging.getLogger(func.__module__)
         logger.info("Starting %s", func.__name__)
+
+        # Log inputs without the first arg (typically ``self``)
+        call_args = args[1:] if args else []
+        logger.debug("%s args=%s kwargs=%s", func.__name__, call_args, kwargs)
+
         result = await func(*args, **kwargs)
+
+        # Resolve nested attribute if requested
+        to_log = result
+        if return_attr:
+            for attr in return_attr.split('.'):
+                to_log = getattr(to_log, attr, None)
+                if to_log is None:
+                    break
+
+        # Attempt to serialize DSPy predictions or arbitrary objects
+        try:
+            serialized = json.dumps(getattr(to_log, "_store", to_log), default=str, ensure_ascii=False)
+        except Exception:  # pragma: no cover - best effort logging
+            serialized = repr(to_log)
+        logger.debug("%s result=%s", func.__name__, serialized)
+
         logger.info("Finished %s", func.__name__)
         return result
 
