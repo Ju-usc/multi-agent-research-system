@@ -2,7 +2,6 @@
 
 A minimal multi-agent research system, built with DSPy, inspired by [Anthropic’s multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system).
 
-reference: https://www.anthropic.com/engineering/multi-agent-research-system
 
 > Documentation:
 > - **architecture-agent.md** — flexible, subagent-spawning design (primary direction)
