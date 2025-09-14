@@ -51,8 +51,9 @@ ReAct-style orchestration: a **Lead Agent** plans via a **To-Do List**, uses fil
 
 ```mermaid
 flowchart LR
-  U[User Query] --> L[Lead Agent (ReAct)]
-  subgraph ARTIFACTS["Artifacts — agent-written files"]
+  U[User Query] --> L[Lead Agent ReAct]
+
+  subgraph ARTIFACTS["Artifacts (agent-written files)"]
     T[To-Do List]
     A[Reports: *.md]
   end
@@ -69,6 +70,5 @@ flowchart LR
 
   S1 -->|summary| L
   S2 -->|summary| L
-
   L -->|read| A
-  L --> Answer[Finalize when sufficient]
+  L --> F[Finalize when sufficient]
