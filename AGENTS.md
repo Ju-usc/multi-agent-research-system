@@ -87,7 +87,7 @@ uv run pytest -k "<pattern>" -q
 
 ---
 
-# WRITING STYLE
+## Writing style
 
 - Break up long sentences. After each long sentence, insert two newline characters.
 - Avoid long bullet lists.
@@ -101,7 +101,7 @@ uv run pytest -k "<pattern>" -q
   
 ---
 
-# HELP THE USER LEARN
+## Help the user learn
 
 - when coding, always explain what you are doing and why
 - your job is to help the user learn & upskill himself, above all
