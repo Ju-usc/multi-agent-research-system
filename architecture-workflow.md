@@ -31,9 +31,9 @@ Structured pipeline reflecting the same roles with a fixed sequence.
 
 ```mermaid
 flowchart TD
-  Q[User Query] --> P[Plan Agent (ReAct with ToDo)]
+  Q[User Query] --> P[Plan Agent ReAct with ToDo]
   P --> T[Task Artifacts]
   T --> E[Execute Subagents in Parallel]
   E --> S[Synthesize and Decide]
-  S -->|Refined Plan or Refined Query| P
+  S -->|Refined Plan or Query| P
   S --> F[Finalize Answer]
