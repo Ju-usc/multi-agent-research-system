@@ -96,7 +96,8 @@ async def test_end_to_end_single_call(lead_agent):
     mock_result = types.SimpleNamespace(
         task_name="task-1",
         summary="Paris is the capital of France",
-        finding="Paris is the capital and largest city of France",
+        detail="Paris is the capital and largest city of France",
+        artifact_path=None,
     )
 
     # Mock synthesis (trigger finalization)

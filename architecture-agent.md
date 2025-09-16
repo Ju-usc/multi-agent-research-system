@@ -18,7 +18,7 @@ ReAct-style orchestration: a **Lead Agent** plans via a **To-Do List**, uses fil
 ## Tools (fixed surfaces)
 
 **Lead tools**
-- `todo.add|update|mark` — manage To-Dos.
+- `todo_list_read | todo_list_write` — read or replace the full in-memory To-Do list; callers stage edits locally and write back the complete list to represent add/update/mark operations.
 - `fs_list(path)` — list artifacts (filesystem tree discovery).
 - `fs_read(path)` — read artifact contents.
 - `spawn_subagent(task, [artifact_path])` → `{ summary }`
@@ -27,7 +27,7 @@ ReAct-style orchestration: a **Lead Agent** plans via a **To-Do List**, uses fil
 
 **Subagent tools**
 - `web_search(query, …)` — research on the web.
-- `fs_write_report(path, markdown)` → `{ path, bytes }` (sandboxed write)
+- `filesystem_write(path, markdown)` — append or overwrite markdown artifacts under the sandboxed memory root.
 
 ## Contracts (minimal)
 
@@ -67,4 +67,3 @@ flowchart LR
 
   L -->|read| A
   L --> F[Finalize when sufficient]
-

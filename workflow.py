@@ -183,11 +183,8 @@ class LeadAgent(dspy.Module):
         Returns:
             PlanResult prediction containing tasks and reasoning
         """
-        # Get current filesystem structure
-        memory_tree = self.fs.tree()
-
         with dspy.context(lm=self.planner_lm):
-            plan = await self.planner.acall(query=query, memory_tree=memory_tree)
+            plan = await self.planner.acall(query=query)
 
         # Determine a safe filename (tests may not set plan.plan_filename)
         plan_filename = getattr(plan, "plan_filename", None) or "test-plan"
@@ -215,12 +212,9 @@ class LeadAgent(dspy.Module):
         Returns:
             SynthesisResult prediction containing decision and synthesis
         """
-        # Get updated filesystem structure
-        memory_tree = self.fs.tree()
-
         with dspy.context(lm=self.synthesizer_lm):
             decision = await self.synthesizer.acall(
-                query=query, memory_tree=memory_tree, completed_results=results
+                query=query, completed_results=results
             )
 
         # Write synthesis to filesystem
@@ -241,13 +235,9 @@ class LeadAgent(dspy.Module):
         Returns:
             Markdown formatted final report
         """
-        # Get full filesystem structure
-        memory_tree = self.fs.tree(max_depth=None)
-        
         with dspy.context(lm=self.final_report_lm):
             final_result = await self.final_reporter.acall(
                 query=query,
-                memory_tree=memory_tree,
                 final_synthesis=final_synthesis,
             )
 

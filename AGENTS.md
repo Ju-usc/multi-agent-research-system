@@ -1,5 +1,7 @@
 ## Useful Docs
 
+> Architecture details such as tool names or model choices evolve. Always cross-check the architecture docs for the current truth.
+
 See also:
 - @README.md — project overview
 - @architecture-agent.md — agent architecture (primary direction)

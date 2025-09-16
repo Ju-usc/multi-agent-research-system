@@ -34,7 +34,7 @@ memory/
 **Key Changes**
 - `SubagentTask.task_name`: Filesystem-friendly directory name
 - `PlanResearch.plan_filename`: Descriptive plan filename  
-- `memory_tree` replaces `memory_summaries` in DSPy signatures
+- Agents request structure on demand via the `filesystem_tree` tool instead of passing a cached `memory_tree`
 - WebSearchTool returns plain text (DSPy compatibility)
 
 ### Benefits

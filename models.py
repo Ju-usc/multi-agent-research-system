@@ -34,7 +34,11 @@ class SubagentResult(BaseModel):
         exclude=True,
     )
     summary: str = Field(description="High-density 2-4 sentence overview of the key findings")
-    finding: str = Field(description="Full detailed answer directly addressing the task objective")
+    detail: Optional[str] = Field(default=None, description="Optional short-form detail that supplements the summary")
+    artifact_path: Optional[str] = Field(
+        default=None,
+        description="Optional path to a filesystem artifact containing the full report when detail does not fit inline",
+    )
 
 # ---------- Todo List ----------
 
@@ -50,17 +54,8 @@ class Todo(BaseModel):
 
 class PlanResearch(dspy.Signature):
     """Generate strategic reasoning and a parallel task list for subagents from the user's query.
-    
-    IMPORTANT: Use consistent formatting for ALL field headers with ## on BOTH sides:
-    [[ ## next_thought ## ]]
-    [[ ## next_tool_name ## ]]  
-    [[ ## next_tool_args ## ]]
-    [[ ## plan_filename ## ]]
-    [[ ## reasoning ## ]]
-    [[ ## tasks ## ]]
     """
     query: str = dspy.InputField(desc="User's research question")
-    memory_tree: str = dspy.InputField(desc="Current filesystem structure showing available research data")
     plan_filename: str = dspy.OutputField(desc="Filesystem-friendly filename for this plan (max 50 chars, e.g., 'compare-llm-frameworks')")
     reasoning: str = dspy.OutputField(desc="Strategic analysis of query decomposition approach")
     tasks: List[SubagentTask] = dspy.OutputField(desc="List of 3-5 parallel tasks with unique task_names for subagents") 
@@ -68,12 +63,6 @@ class PlanResearch(dspy.Signature):
 
 class ExecuteSubagentTask(dspy.Signature):
     """Execute a focused micro-task using permitted tools and return structured findings.
-    
-    IMPORTANT: Use consistent formatting for ALL field headers with ## on BOTH sides:
-    [[ ## next_thought ## ]]
-    [[ ## next_tool_name ## ]]  
-    [[ ## next_tool_args ## ]]
-    [[ ## final_result ## ]]
     """
     task: SubagentTask = dspy.InputField(desc="The atomic task this subagent must complete")
     final_result: SubagentResult = dspy.OutputField(desc="Structured output summarizing task completion")
@@ -82,7 +71,6 @@ class ExecuteSubagentTask(dspy.Signature):
 class SynthesizeAndDecide(dspy.Signature):
     """Synthesize all findings from the current cycle and decide whether to continue iteration."""
     query: str = dspy.InputField(desc="Original user query being addressed")
-    memory_tree: str = dspy.InputField(desc="Current filesystem structure showing all research data")
     completed_results: List[SubagentResult] = dspy.InputField(desc="Results from this cycle's subagents")
     synthesis: str = dspy.OutputField(desc="Comprehensive analysis integrating all findings so far")
     is_done: bool = dspy.OutputField(desc="True if we have sufficient information to answer the query")
@@ -92,15 +80,7 @@ class SynthesizeAndDecide(dspy.Signature):
 
 class FinalReport(dspy.Signature):
     """Generate a well-structured final research report from all memory artifacts.
-    
-    IMPORTANT: Use consistent formatting for ALL field headers with ## on BOTH sides:
-    [[ ## next_thought ## ]]
-    [[ ## next_tool_name ## ]]
-    [[ ## next_tool_args ## ]]
-    [[ ## synthesis ## ]]
-    [[ ## report ## ]]
     """
     query: str = dspy.InputField(desc="The original user query")
     final_synthesis: str = dspy.InputField(desc="The final synthesis from the lead agent")
-    memory_tree: str = dspy.InputField(desc="Filesystem structure showing all research artifacts")
     report: str = dspy.OutputField(desc="Complete research report in markdown format")
