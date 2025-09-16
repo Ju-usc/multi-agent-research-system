@@ -27,7 +27,12 @@ class SubagentTask(BaseModel):
 
 class SubagentResult(BaseModel):
     """Structured report a subagent returns after finishing its task."""
-    task_name: str = Field(description="Task directory name that produced this result")
+    # task_name is populated from the originating SubagentTask, not the LLM output
+    task_name: str = Field(
+        default="",
+        description="Task directory name that produced this result",
+        exclude=True,
+    )
     summary: str = Field(description="High-density 2-4 sentence overview of the key findings")
     finding: str = Field(description="Full detailed answer directly addressing the task objective")
 

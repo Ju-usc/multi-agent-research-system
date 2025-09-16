@@ -244,7 +244,10 @@ class SubagentTool:
                 subAgent.adapter = self._adapter
                 result = await subAgent.acall(task=task)
 
-            return result.final_result
+            final = result.final_result
+            # Preserve the originating task_name instead of relying on LLM output
+            final.task_name = task.task_name
+            return final
         except Exception as e:
             raise e
 

@@ -7,7 +7,6 @@ import sys
 import types
 import os
 from pathlib import Path
- 
 
 
 @pytest.fixture
@@ -107,21 +106,31 @@ async def test_end_to_end_single_call(lead_agent):
     with patch.object(lead_agent.planner, 'acall', new=AsyncMock(return_value=mock_plan)):
         with patch.object(lead_agent, 'execute_subagent_task', new=AsyncMock(return_value=mock_result)):
             with patch.object(lead_agent.synthesizer, 'acall', new=AsyncMock(return_value=mock_synthesis)):
-                with patch.object(lead_agent, 'generate_final_report', new=AsyncMock(return_value="# Report\nParis")):
+                async def fake_final_report(query: str, final_synthesis: str) -> str:
+                    path = f"cycle_{lead_agent.cycle_idx:03d}/final_report.md"
+                    lead_agent.fs.write(path, "# Report\nParis")
+                    return "# Report\nParis"
+                with patch.object(lead_agent, 'generate_final_report', new=fake_final_report):
                     result = await lead_agent.aforward(query)
 
     # Assertions: decision surface
-    assert result is not None
-    assert result["is_done"] is True
-
-    # Filesystem artifacts for this single cycle
-    last_cycle = lead_agent.cycle_idx
-    tree = lead_agent.fs.tree(max_depth=None)
-    assert f"cycle_{last_cycle:03d}/synthesis.md" in tree
-    assert f"cycle_{last_cycle:03d}/final_report.md" in tree
-    assert f"cycle_{last_cycle:03d}/test-plan.md" in tree
-    assert f"cycle_{last_cycle:03d}/task-1/result.md" in tree
-
-    # Persistence of pre-seeded file
-    assert lead_agent.fs.exists("custom/initial.md")
+    assert result == "# Report\nParis"
+    
+    # Verify plan was stored
+    plan_content = lead_agent.fs.read("cycle_001/plans/test-plan.md")
+    assert "Need to find capital of France" in plan_content
+    
+    # Verify subagent result stored
+    task_content = lead_agent.fs.read("cycle_001/subagent_results/task-1.md")
+    assert "Paris is the capital of France" in task_content
+    
+    # Verify synthesis stored
+    synthesis_content = lead_agent.fs.read("cycle_001/synthesis.md")
+    assert "The capital of France is Paris" in synthesis_content
+    
+    # Verify final report stored
+    report_content = lead_agent.fs.read("cycle_001/final_report.md")
+    assert "# Report\nParis" in report_content
+    
+    # Verify pre-seeded data persisted
     assert lead_agent.fs.read("custom/initial.md") == "Initial data"

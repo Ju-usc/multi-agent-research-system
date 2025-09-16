@@ -1,76 +1,28 @@
 # Multi-Agent Research System
 
-A minimal multi-agent research system built with DSPy and OpenRouter, designed to reverse-engineer Claude's research capabilities.
+A minimal multi-agent research system, built with DSPy, inspired by [Anthropic’s multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system).
 
-## Architecture
 
-This system implements a lead-subagent research pattern where:
-- **Lead Agent**: Plans research tasks, manages memory, and synthesizes results
-- **Subagents**: Execute specific research micro-tasks in parallel
-- **Memory Store**: Maintains research artifacts with lightweight summaries
+> Documentation:
+> - **architecture-agent.md** — flexible, subagent-spawning design (primary direction)
+> - **architecture-workflow.md** — structured plan → execute → synthesize pipeline
 
-## Features
+## Core ideas
 
-- 🔄 Async parallel execution of research tasks
-- 🧠 Filesystem artifact storage with Markdown outputs
-- 🔍 Web search integration
-- 📊 Iterative refinement based on synthesis decisions
-- 🎯 Task-specific tool guidance and budgets
+- **Separation of concerns:** Lead plans, tracks To-Dos, reads artifacts, synthesizes. Subagents research and optionally write a report.
+- **Least privilege:** Subagents use a fixed tool set: `web_search` and optional `fs_write_report`. No filesystem reads for subagents.
+- **Minimal contracts:** Subagent return surface is a single field:  
+  `{"summary": "<brief findings; may include 'artifact: <path>'>"}`  
+  Citations (`refs`) can be added later without changing this surface.
+- **To-Do–driven planning:** High-level plans are written and tracked via a To-Do List tool to manage decomposition and progress.
+- **Flexibility:** Loops and tactics are examples, not prescriptions. Prompting guidelines will evolve through optimization (e.g., SIMBA/GEPA).
 
-## BrowseComp Evaluation
+## Conceptual flow
 
-Evaluate the multi-agent research system on OpenAI's BrowseComp dataset:
-
-### Dataset (`dataset.py`)
-- Downloads and decrypts the official BrowseComp dataset from OpenAI
-- Handles XOR decryption with automatic canary value detection
-- Creates DSPy Example objects for seamless integration
-
-### Evaluation (`eval.py`)
-- **DSPy Framework**: Uses `dspy.Evaluate` for standardized evaluation
-- **LLM Judge**: Intelligent answer evaluation with reasoning
-- **Parallel Execution**: Multi-threaded evaluation for efficiency
-- **Program Wrapper**: `BrowseCompProgram` adapts async LeadAgent for DSPy
-
-### Usage
-
-```bash
-uv run python -c "from eval import run_browsecomp_evaluation; results = run_browsecomp_evaluation(num_examples=20, num_threads=4); print(f'Accuracy: {results[\"accuracy\"]:.1f}%')"
-```
-
-## Installation
-
-```bash
-uv sync
-```
-
-## Environment Variables
-
-Create a `.env` file with:
-```
-BRAVE_SEARCH_API_KEY=your_key
-OPENROUTER_API_KEY=your_key
-OPENAI_API_KEY=your_key
-```
-
-## Usage
-
-```bash
-uv run python -c "from agent import LeadAgent; import asyncio; agent = LeadAgent(); print(asyncio.run(agent.run('Your research question here')))"
-```
-
-## Testing
-
-```bash
-uv run pytest tests/
-```
-
-## Dependencies
-
-- dspy-ai
-- python-dotenv
-- brave-search-python-client
-- pandas (for BrowseComp dataset)
+1. Create a **To-Do** of high-level plans.  
+2. Spawn **Subagents** for tasks (a subagent may decompose a single To-Do into multiple tasks or handle multiple To-Dos in parallel).  
+3. Subagents use **web_search** and may `fs_write_report(...)`; each returns a **summary**.  
+4. Lead **reads artifacts**, updates the To-Do, and **synthesizes** the answer; iterate if gaps remain.
 
 ## License
 
