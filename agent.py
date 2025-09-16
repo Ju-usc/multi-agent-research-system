@@ -3,7 +3,7 @@ from config import (
     BRAVE_SEARCH_API_KEY, OPENAI_API_KEY, SMALL_MODEL, BIG_MODEL, TEMPERATURE, BIG_MODEL_MAX_TOKENS, SMALL_MODEL_MAX_TOKENS
 )
 from tools import (
-    WebSearchTool, FileSystemTool, TodoListTool
+    WebSearchTool, FileSystemTool, TodoListTool, SubagentTool
 )
 from dspy.adapters.baml_adapter import BAMLAdapter
 
@@ -19,6 +19,7 @@ class Agent(dspy.Module):
         self.fs_tool = FileSystemTool()
         self.fs = self.fs_tool
         self.todo_list_tool = TodoListTool()
+        self.subagent_tool = SubagentTool()
 
         # Create DSPy tools from class instances
         self.tools = {
@@ -46,6 +47,11 @@ class Agent(dspy.Module):
                 self.todo_list_tool.write,
                 name="todo_list_write",
                 desc="Write to the todo list. Useful to keep track of the tasks you need to complete."
+            ),
+            "subagent_parallel_run": dspy.Tool(
+                self.subagent_tool.parallel_run,
+                name="subagent_parallel_run",
+                desc="Kick off several research subagents at once; each runs web search and writes back findings."
             )
         }
 
@@ -61,3 +67,10 @@ class Agent(dspy.Module):
 
     def aforward(self, query: str) -> dspy.Prediction:
         return self.agent.acall(query=query)
+
+def main():
+    agent = Agent()
+    agent.aforward("What is the capital of France?")
+
+if __name__ == "__main__":
+    main()
