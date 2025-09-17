@@ -1,8 +1,10 @@
 import dspy
 from dspy.adapters.baml_adapter import BAMLAdapter
+from dspy.adapters.chat_adapter import ChatAdapter
+
 
 from config import (
-    BRAVE_SEARCH_API_KEY,
+    EXA_API_KEY,
     OPENAI_API_KEY,
     SMALL_MODEL,
     BIG_MODEL,
@@ -29,12 +31,9 @@ class AgentSignature(dspy.Signature):
 class Agent(dspy.Module):
     def __init__(self) -> None:
         super().__init__()
-
         # Shared adapter for structured outputs
-        self.baml_adapter = BAMLAdapter()
-
         # Core tools
-        self.web_search_tool = WebSearchTool(BRAVE_SEARCH_API_KEY)
+        self.web_search_tool = WebSearchTool(EXA_API_KEY)
         self.fs_tool = FileSystemTool()
         self.todo_list_tool = TodoListTool()
         self.fs = self.fs_tool  # provide backward-compatible alias
@@ -53,68 +52,80 @@ class Agent(dspy.Module):
             max_tokens=SMALL_MODEL_MAX_TOKENS,
         )
 
-        # Lead tool registry
-        self.tools = {
+        dspy.configure(lm=self.agent_lm, adapter=ChatAdapter())
+
+
+        self.subagent_tools = {
             "web_search": dspy.Tool(
                 self.web_search_tool,
                 name="web_search",
                 desc="Search the web for supporting information (<=5 results).",
             ),
+            "filesystem_write": dspy.Tool(
+                self.fs_tool.write,
+                name="filesystem_write",
+                desc="Write content to specific path in the filesystem. Drop the leading 'memory/' prefix in paths.",
+            ),
+        }
+
+        # Subagent execution tool 
+        self.subagent_tool = SubagentTool(
+            tools=list(self.subagent_tools.values()),
+            lm=self.subagent_lm,
+            adapter=ChatAdapter(),
+        )
+
+        # Lead tool registry (populate base tools first)
+        self.lead_agent_tools = {
             "filesystem_read": dspy.Tool(
                 self.fs_tool.read,
                 name="filesystem_read",
-                desc="Read markdown artifacts under memory/. Drop the leading 'memory/' prefix in paths.",
+                desc="Read artifacts from subagents under memory/. Drop the leading 'memory/' prefix in paths.",
             ),
             "filesystem_tree": dspy.Tool(
                 self.fs_tool.tree,
                 name="filesystem_tree",
-                desc="List the current research memory tree to see available artifacts.",
+                desc="List the current memory tree to see available artifacts from subagents.",
             ),
             "todo_list_read": dspy.Tool(
                 self.todo_list_tool.read,
                 name="todo_list_read",
-                desc="Fetch the in-memory To-Do list snapshot.",
+                desc="Fetch the current status of the To-Do list. Useful when you need to see what you have planned.",
             ),
             "todo_list_write": dspy.Tool(
                 self.todo_list_tool.write,
                 name="todo_list_write",
-                desc="Replace the To-Do list with your updated list of items.",
+                desc="Write the To-Do list. Useful when you need to plan something. You should always try to update the To-Do list status.",
+            ),
+            "subagent_parallel_run": dspy.Tool(
+                self.subagent_tool.parallel_run,
+                name="subagent_parallel_run",
+                desc="Kick off several subagents at once; each runs web search and writes back findings.",
             ),
         }
 
-        # Subagent execution tool (web-search only for now)
-        self.subagent_tool = SubagentTool(
-            tools=[self.web_search_tool],
-            lm=self.subagent_lm,
-            adapter=self.baml_adapter,
-        )
 
-        self.tools["subagent_parallel_run"] = dspy.Tool(
-            self.subagent_tool.parallel_run,
-            name="subagent_parallel_run",
-            desc="Kick off several research subagents at once; each runs web search and writes back findings.",
-        )
 
         # Single-loop agent program
-        self.agent_program = dspy.ReAct(
+        self.lead_agent = dspy.ReAct(
             AgentSignature,
-            tools=list(self.tools.values()),
+            tools=list(self.lead_agent_tools.values()),
             max_iters=3,
         )
-        self.agent_program.adapter = self.baml_adapter
 
     @observe(name="single_loop_agent", capture_input=True, capture_output=True)
-    def forward(self, query: str) -> dspy.Prediction:
-        with dspy.context(lm=self.agent_lm):
-            return self.agent_program(query=query)
+    async def aforward(self, query: str) -> dspy.Prediction:
+        return await self.lead_agent.acall(query=query)
 
 
-def main() -> None:
+async def main() -> None:
     print("Initializing agent...")
     agent = Agent()
     print("Starting agent...")
-    result = agent(query="Lamine vs Doue who's better?")
+    result = await agent.aforward(query="Lamine vs Doue who's better? Be objective and keep it research short and concise DO NOT ASK ANYTHING ELSE. Try to use tools provided to you to test our system first.")
     print(result.answer)
+    dspy.inspect_history(n=10)
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main())

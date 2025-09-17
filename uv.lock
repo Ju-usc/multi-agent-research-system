@@ -558,6 +558,22 @@ wheels = [
 ]
 
 [[package]]
+name = "exa-py"
+version = "1.15.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "openai" },
+    { name = "pydantic" },
+    { name = "requests" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/91/4c/3eb7c6d80a5b6beb38752210f5c940c70f65464140db33ae261b2a4825bc/exa_py-1.15.6.tar.gz", hash = "sha256:67bb1c0902956b0e23325cc1f9ee990d21277d77b962a40c8902f5eda2407fff", size = 41185 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/92/9c/41f032ef35a44262dfe59eeaa4ee6448c9a86fd3b59dbb7448eec9953858/exa_py-1.15.6-py3-none-any.whl", hash = "sha256:8bdbe8d9548408f37b895eed7497046bed3e19a84b5f06bf23a540d4e26b636c", size = 56456 },
+]
+
+[[package]]
 name = "executing"
 version = "2.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1485,6 +1501,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "brave-search-python-client" },
     { name = "dspy-ai" },
+    { name = "exa-py" },
     { name = "jupyter" },
     { name = "langfuse" },
     { name = "nest-asyncio" },
@@ -1504,6 +1521,7 @@ dev = [
 requires-dist = [
     { name = "brave-search-python-client" },
     { name = "dspy-ai" },
+    { name = "exa-py" },
     { name = "jupyter" },
     { name = "langfuse" },
     { name = "nest-asyncio", specifier = ">=1.6.0" },

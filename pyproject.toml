@@ -13,6 +13,7 @@ dependencies = [
     "langfuse",
     "openinference-instrumentation-dspy",
     "pandas",
+    "exa-py",
 ]
 
 [dependency-groups]

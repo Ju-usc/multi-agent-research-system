@@ -9,7 +9,8 @@ from typing import Dict, List, Any, Optional
 import json
 import dspy
 from pathlib import Path
-from brave_search_python_client import BraveSearch, WebSearchRequest
+from exa_py import Exa
+from config import EXA_API_KEY
 from models import (
     Todo,
     SubagentTask,
@@ -20,98 +21,83 @@ from models import (
 # ---------- WebSearch ----------
 
 class WebSearchTool:
-    """Web search tool using Brave Search API."""
-    
-    def __init__(self, api_key: str):
-        """Initialize with Brave Search API key."""
-        self.api_key = api_key
-        self.client = BraveSearch(api_key=api_key)
-    
-    async def __call__(self, query: str, count: int = 5) -> str:
-        """Execute web search.
-        
-        Args:
-            query: Search query
-            count: Number of results (default: 5, max: 5)
-            
-        Returns:
-            Formatted search results as markdown
-        """
-        if count > 5:
-            count = 5
-        
+    """Call Exa's search API and format the hits as a markdown list."""
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        *,
+        max_results: int = 10,
+        max_snippet_length: int = 10_000,
+        search_type: str = "auto",
+    ) -> None:
+        key = api_key or EXA_API_KEY
+        if not key:
+            raise ValueError("EXA_API_KEY is required to initialize WebSearchTool")
+
+        self.client = Exa(key)
+        self.max_results = max(1, max_results)
+        self.max_snippet_length = max_snippet_length
+        self.search_type = search_type
+
+    async def __call__(self, query: str, count: int = 3, snippet_length: int = 2000) -> str:
+        """Return up to `count` results with snippets trimmed to the requested length."""
+        query = query.strip()
+        if not query:
+            return "# Search Error\n\nQuery cannot be empty."
+
+        num_results = max(1, min(count, self.max_results))
+        snippet_length = max(100, min(snippet_length, self.max_snippet_length))
+
+        kwargs: Dict[str, Any] = {
+            "num_results": num_results,
+            "type": self.search_type,
+            "text": True,
+        }
+
         try:
-            response = await self.client.web(WebSearchRequest(q=query, count=count))
-            
-            if not response.web or not response.web.results:
-                return f"No results found for '{query}'"
+            response = await asyncio.to_thread(
+                self.client.search_and_contents,
+                query,
+                **kwargs,
+            )
+        except Exception as exc:
+            return f"# Search Error\n\nError searching for '{query}': {exc}"
 
-            # Format results as markdown
-            content_lines = [f"# Search results for '{query}'", ""]
-            
-            for i, result in enumerate(response.web.results[:count], 1):
-                content_lines.extend([
-                    f"## {i}. {result.title}",
-                    f"{result.description}",
-                    f"**URL:** {result.url}",
-                    ""
-                ])
-            
-            return "\n".join(content_lines)
-        except Exception as e:
-            return f"# Search Error\n\nError searching for '{query}': {e}"
-
-
-
-
-# ---------- ParallelSearch ----------
+        if not response.results:
+            return f"No results found for '{query}'"
+        lines: List[str] = []
+        for idx, item in enumerate(response.results, 1):
+            title = item.title or "Untitled"
+            context = (item.summary or item.text or "").strip()[:snippet_length]
+            lines.append(f"{idx}. {title}\n{context}\n{item.url}")
+        output = "\n\n".join(lines)
+        return output
 
 class ParallelSearchTool:
-    """Execute multiple searches in parallel for efficiency."""
-    
-    def __init__(self, tools: Dict[str, Any]):
-        """Initialize with available tools dictionary."""
+    """Run several tool invocations concurrently and return their outputs."""
+
+    def __init__(self, tools: Dict[str, Any]) -> None:
         self.tools = tools
-    
+
     async def __call__(self, calls: list[dict]) -> list[str]:
-        """Execute multiple tool calls in parallel.
-        
-        Args:
-            calls: List of dicts with 'tool_name' and 'args' keys
-                Example: [
-                    {"tool_name": "web_search", "args": {"query": "Python programming"}},
-                    {"tool_name": "memory_read", "args": {"key": "1-plan"}}
-                ]
-        
-        Returns:
-            List of results from each tool call
-        """
-        async def execute_call(call):
-            tool_name = call.get("tool_name")
+        """Calls must be dicts of the form {'tool_name': str, 'args': dict}."""
+
+        async def execute(call: dict) -> str:
+            name = call.get("tool_name")
             args = call.get("args", {})
-            
-            if tool_name not in self.tools:
-                return f"Unknown tool: {tool_name}"
-            
-            tool = self.tools[tool_name]
-            
-            # Check if tool is async
+            if name not in self.tools:
+                return f"Unknown tool: {name}"
+
+            tool = self.tools[name]
             if asyncio.iscoroutinefunction(tool):
                 return await tool(**args)
-            else:
-                # Run sync functions in executor to avoid blocking
-                loop = asyncio.get_event_loop()
-                return await loop.run_in_executor(None, functools.partial(tool, **args))
-        
-        # Execute all calls in parallel
-        results = await asyncio.gather(*[execute_call(call) for call in calls], return_exceptions=True)
-        
-        # Convert exceptions to error messages
-        return [
-            str(r) if isinstance(r, Exception) else r
-            for r in results
-        ]
 
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, functools.partial(tool, **args))
+
+        results = await asyncio.gather(*(execute(call) for call in calls), return_exceptions=True)
+        return [str(r) if isinstance(r, Exception) else r for r in results]
 
 
 # ---------- FileSystem ----------
@@ -218,38 +204,47 @@ class TodoListTool:
 
 # ---------- SubagentTool ----------
 
-class SubagentTool:
-    """Execute subagent tasks with per-task instruction via with_instruction.
+class SubagentTool(dspy.Module):
+    """Execute subagent tasks with per-task instruction via with_instruction."""
 
-    - Input: tasks: list[SubagentTask]
-    - Prompt source: task.prompt (excluded from task serialization)
-    - Tools: provided by caller (agent-configured allowlist)
-    - Output: SubagentResult or list thereof (via parallel_run)
-    - Persistence: none; caller handles filesystem writes
-    """
-
-    def __init__(self, tools: Dict[str, Any], lm: Any, adapter: Optional[Any] = None) -> None:
+    def __init__(self, tools: List[dspy.Tool], lm: Any, adapter: Optional[Any] = None) -> None:
+        super().__init__()
         self._tools = tools
         self._lm = lm
         self._adapter = adapter
-    
-    async def run(self, task: SubagentTask) -> SubagentResult:
-        # Prepare instruction-layered signature
-        output_signature = ExecuteSubagentTask.with_instruction(task.prompt)
 
-        try:
-            # Execute with provided LM and optional adapter
-            with dspy.context(lm=self._lm):
-                subAgent = dspy.ReAct(output_signature, tools=self._tools, max_iters=task.tool_budget)
-                subAgent.adapter = self._adapter
-                result = await subAgent.acall(task=task)
+    def forward(self, task: SubagentTask) -> SubagentResult:
+        signature = ExecuteSubagentTask.with_instruction(task.prompt)
+        subagent = dspy.ReAct(signature, tools=self._tools, max_iters=task.tool_budget)
+        subagent.lm = self._lm
+        subagent.adapter = self._adapter
+        with dspy.context(lm=self._lm, adapter=self._adapter):
+            prediction = subagent(task=task)
+        final = prediction.final_result
+        final.task_name = task.task_name
+        return final
 
-            final = result.final_result
-            # Preserve the originating task_name instead of relying on LLM output
-            final.task_name = task.task_name
-            return final
-        except Exception as e:
-            raise e
+    async def parallel_run(self, tasks: List[SubagentTask]) -> str:
+        if not tasks:
+            return json.dumps({"successes": [], "failures": []}, indent=2)
 
-    async def parallel_run(self, tasks: List[SubagentTask]) -> List[SubagentResult]:
-        return await asyncio.gather(*[self.run(task) for task in tasks], return_exceptions=True)
+        examples = [dspy.Example(task=task).with_inputs("task") for task in tasks]
+
+        results, failed_examples, exceptions = await asyncio.to_thread(
+            self.batch,
+            examples,
+            return_failed_examples=True,
+            return_exceptions=True,
+            max_errors=len(examples),
+            provide_traceback=False,
+        )
+
+        summary = {
+            "successes": [res.model_dump() for res in results],
+            "failures": [
+                {"task": ex.task.task_name, "error": str(err)}
+                for ex, err in zip(failed_examples, exceptions)
+            ],
+        }
+
+        return json.dumps(summary, indent=2)
