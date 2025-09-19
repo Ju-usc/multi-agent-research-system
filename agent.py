@@ -114,18 +114,16 @@ class Agent(dspy.Module):
         )
 
     @observe(name="single_loop_agent", capture_input=True, capture_output=True)
-    async def aforward(self, query: str) -> dspy.Prediction:
-        return await self.lead_agent.acall(query=query)
+    def forward(self, query: str) -> dspy.Prediction:
+        return self.lead_agent.call(query=query)
 
-
-async def main() -> None:
+def main() -> None:
     print("Initializing agent...")
     agent = Agent()
     print("Starting agent...")
-    result = await agent.aforward(query="Lamine vs Doue who's better? Be objective and keep it research short and concise DO NOT ASK ANYTHING ELSE. Try to use tools provided to you to test our system first.")
+    result = agent.forward(query="Lamine vs Doue who's better? Be objective and keep it research short and concise DO NOT ASK ANYTHING ELSE. Try to use tools provided to you to test our system first.")
     print(result.answer)
     dspy.inspect_history(n=10)
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()
