@@ -26,7 +26,7 @@ def lead_agent():
     class _WebSearchTool:
         def __init__(self, api_key: str):
             pass
-        async def __call__(self, *a, **k):
+        def __call__(self, *a, **k):
             return ""
     class _FileSystemTool:
         def __init__(self, root: str = "memory"):

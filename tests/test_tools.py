@@ -37,13 +37,12 @@ class _FakeExa:
         )
 
 
-@pytest.mark.asyncio
-async def test_web_search_tool_formats_results(monkeypatch):
+def test_web_search_tool_formats_results(monkeypatch):
     monkeypatch.setattr(tools, "Exa", _FakeExa)
 
     tool = tools.WebSearchTool(api_key="fake-key", max_results=5)
 
-    output = await tool("  Test query  ", count=2, snippet_length=30)
+    output = tool("  Test query  ", count=2, snippet_length=30)
 
     expected = (
         "1. Document One\n"

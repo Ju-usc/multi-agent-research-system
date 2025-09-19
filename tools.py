@@ -40,7 +40,7 @@ class WebSearchTool:
         self.max_snippet_length = max_snippet_length
         self.search_type = search_type
 
-    async def __call__(self, query: str, count: int = 3, snippet_length: int = 2000) -> str:
+    def __call__(self, query: str, count: int = 3, snippet_length: int = 2000) -> str:
         """Return up to `count` results with snippets trimmed to the requested length."""
         query = query.strip()
         if not query:
@@ -56,8 +56,7 @@ class WebSearchTool:
         }
 
         try:
-            response = await asyncio.to_thread(
-                self.client.search_and_contents,
+            response = self.client.search_and_contents(
                 query,
                 **kwargs,
             )
@@ -213,9 +212,13 @@ class SubagentTool(dspy.Module):
         self._lm = lm
         self._adapter = adapter
 
-    def forward(self, task: SubagentTask) -> SubagentResult:
-        signature = ExecuteSubagentTask.with_instruction(task.prompt)
-        subagent = dspy.ReAct(signature, tools=self._tools, max_iters=task.tool_budget)
+    def forward(self, task: SubagentTask) -> Optional[SubagentResult]:
+        # Append the task prompt from the lead agent to the existing instructions
+        current_instructions = ExecuteSubagentTask.instructions
+        new_instructions = current_instructions + "\n" + task.prompt
+        new_signature = ExecuteSubagentTask.with_instructions(instructions=new_instructions)
+
+        subagent = dspy.ReAct(new_signature, tools=self._tools, max_iters=task.tool_budget)
         subagent.lm = self._lm
         subagent.adapter = self._adapter
         with dspy.context(lm=self._lm, adapter=self._adapter):
@@ -224,17 +227,15 @@ class SubagentTool(dspy.Module):
         final.task_name = task.task_name
         return final
 
-    async def parallel_run(self, tasks: List[SubagentTask]) -> str:
+    def parallel_run(self, tasks: List[SubagentTask]) -> str:
         if not tasks:
             return json.dumps({"successes": [], "failures": []}, indent=2)
 
         examples = [dspy.Example(task=task).with_inputs("task") for task in tasks]
 
-        results, failed_examples, exceptions = await asyncio.to_thread(
-            self.batch,
+        results, failed_examples, exceptions = self.batch(
             examples,
             return_failed_examples=True,
-            return_exceptions=True,
             max_errors=len(examples),
             provide_traceback=False,
         )
@@ -242,7 +243,7 @@ class SubagentTool(dspy.Module):
         summary = {
             "successes": [res.model_dump() for res in results],
             "failures": [
-                {"task": ex.task.task_name, "error": str(err)}
+                {"task_name": ex.task.task_name, "error": str(err)}
                 for ex, err in zip(failed_examples, exceptions)
             ],
         }
