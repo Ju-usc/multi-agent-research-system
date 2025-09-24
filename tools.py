@@ -10,6 +10,7 @@ import json
 import dspy
 from pathlib import Path
 from exa_py import Exa
+from langfuse import observe
 from config import EXA_API_KEY
 from models import (
     Todo,
@@ -40,6 +41,7 @@ class WebSearchTool:
         self.max_snippet_length = max_snippet_length
         self.search_type = search_type
 
+    @observe(name="tool_web_search", capture_input=True, capture_output=True)
     def __call__(self, query: str, count: int = 3, snippet_length: int = 2000) -> str:
         """Return up to `count` results with snippets trimmed to the requested length."""
         query = query.strip()
@@ -118,12 +120,14 @@ class FileSystemTool:
         except Exception:
             self._resolved_root = self.root
 
+    @observe(name="tool_filesystem_write", capture_input=True, capture_output=True)
     def write(self, path: str, content: str) -> Path:
         file_path = self.root / path
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content)
         return file_path
 
+    @observe(name="tool_filesystem_read", capture_input=True, capture_output=True)
     def read(self, path: str) -> str:
         file_path = self.root / path
         if not file_path.exists():
@@ -133,6 +137,7 @@ class FileSystemTool:
     def exists(self, path: str) -> bool:
         return (self.root / path).exists()
 
+    @observe(name="tool_filesystem_tree", capture_input=True, capture_output=True)
     def tree(self, max_depth: Optional[int] = 3) -> str:
         paths: List[str] = []
         self._collect_paths(self.root, "", paths, max_depth, 0)
@@ -174,6 +179,7 @@ class TodoListTool:
     def __init__(self) -> None:
         self._todos: List[Todo] = []
 
+    @observe(name="tool_todo_write", capture_input=True, capture_output=True)
     def write(self, todos: List[Todo]) -> str:
         """Replace the todo list with the given list[Todo] and return Json string"""
         try:
@@ -188,6 +194,7 @@ class TodoListTool:
         except Exception as e:
             return f"Error writing todos: {e}"
         
+    @observe(name="tool_todo_read", capture_input=True, capture_output=True)
     def read(self) -> str:
         """Return the current todos as Json string"""
         try:
@@ -212,6 +219,7 @@ class SubagentTool(dspy.Module):
         self._lm = lm
         self._adapter = adapter
 
+    @observe(name="tool_subagent_forward", capture_input=True, capture_output=True)
     def forward(self, task: SubagentTask) -> Optional[SubagentResult]:
         # Append the task prompt from the lead agent to the existing instructions
         current_instructions = ExecuteSubagentTask.instructions
@@ -227,6 +235,7 @@ class SubagentTool(dspy.Module):
         final.task_name = task.task_name
         return final
 
+    @observe(name="tool_subagent_parallel_run", capture_input=True, capture_output=True)
     def parallel_run(self, tasks: List[SubagentTask]) -> str:
         if not tasks:
             return json.dumps({"successes": [], "failures": []}, indent=2)
@@ -237,7 +246,7 @@ class SubagentTool(dspy.Module):
             examples,
             return_failed_examples=True,
             max_errors=len(examples),
-            provide_traceback=False,
+            provide_traceback=True,
         )
 
         summary = {

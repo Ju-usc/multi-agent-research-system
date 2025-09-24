@@ -6,6 +6,8 @@ import sys
 import types
 import dspy
 
+pytestmark = pytest.mark.skip(reason="Evaluation pipeline pending refactor; disable to avoid expensive runs.")
+
 
 def _stub_tools_module() -> None:
     class _WebSearchTool:

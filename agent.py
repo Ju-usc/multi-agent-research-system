@@ -1,7 +1,5 @@
 import dspy
-from dspy.adapters.baml_adapter import BAMLAdapter
 from dspy.adapters.chat_adapter import ChatAdapter
-
 
 from config import (
     EXA_API_KEY,
@@ -115,15 +113,15 @@ class Agent(dspy.Module):
 
     @observe(name="single_loop_agent", capture_input=True, capture_output=True)
     def forward(self, query: str) -> dspy.Prediction:
-        return self.lead_agent.call(query=query)
+        return self.lead_agent(query=query)
 
 def main() -> None:
     print("Initializing agent...")
     agent = Agent()
     print("Starting agent...")
-    result = agent.forward(query="Lamine vs Doue who's better? Be objective and keep it research short and concise DO NOT ASK ANYTHING ELSE. Try to use tools provided to you to test our system first.")
+    result = agent(query="Lamine vs Doue vs KangIn Lee who's better? Be objective and keep it research short and concise DO NOT ASK ANYTHING ELSE. Try to use tools provided to you to test our system first. plz")
+    dspy.inspect_history(n=5)
     print(result.answer)
-    dspy.inspect_history(n=10)
 
 if __name__ == "__main__":
     main()
