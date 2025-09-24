@@ -1,5 +1,7 @@
 ## Useful Docs
 
+Start with README.md for the high-level tour.
+
 > Architecture details such as tool names or model choices evolve. Always cross-check the architecture docs for the current truth.
 
 See also:
