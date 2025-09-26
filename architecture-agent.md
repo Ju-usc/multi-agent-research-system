@@ -34,6 +34,7 @@ ReAct-style orchestration: a **Lead Agent** plans via a **To-Do List**, uses fil
 - **Subagent output:** structured JSON with `summary`.
 
   Optional `detail` and `artifact_path` appear when the subagent writes a report under `memory/`.
+- **Task shape:** `task_name`, `prompt`, `description`, `tool_budget` stay required. Add `expected_output` when you know the artifact; skip it when exploring.
 - **No filesystem reads by Subagents.** Artifacts are written by Subagents, read by the Lead.
 
 ## High-level loop (illustrative, not prescriptive)

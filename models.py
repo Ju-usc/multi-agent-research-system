@@ -21,7 +21,10 @@ class SubagentTask(BaseModel):
     prompt: str = Field(description="Prompt for the subagent to complete the task", exclude=True) # exclude prompt as an input field of subagentResult as it is configured directly via instruction 
     description: str = Field(description="Description of the task")
     tool_budget: int = Field(default=3, ge=1, le=15, description="Maximum number of tool calls the subagent may issue")
-    expected_output: str = Field(description="Exact artifact or information the subagent must return for completion")
+    expected_output: Optional[str] = Field(
+        default=None,
+        description="Exact artifact the subagent should produce"
+    )
     tip: Optional[str] = Field(default=None, description="Optional hint to improve quality or efficiency while executing the task")
 
 

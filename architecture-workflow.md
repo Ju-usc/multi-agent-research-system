@@ -10,6 +10,7 @@ Structured pipeline reflecting the same roles with a fixed sequence.
    - A plan module/agent maintains a **To-Do List** of high-level plans using `todo_list_read` and `todo_list_write`.
    - Reads existing artifacts through `filesystem_tree` then `filesystem_read` to maintain context.
    - Emits a set of **parallelizable tasks** as artifacts for subagents.
+   - Add `expected_output` when you already know the deliverable; leave it out when the task is exploratory.
 
 2. **Execute (parallel)**
    - Spawn subagents through `subagent_parallel_run` to complete tasks.
