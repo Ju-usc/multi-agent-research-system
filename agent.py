@@ -1,22 +1,30 @@
+import argparse
+import logging
+
 import dspy
 from dspy.adapters.chat_adapter import ChatAdapter
 
 from config import (
     EXA_API_KEY,
-    OPENAI_API_KEY,
-    SMALL_MODEL,
+    MODEL_PRESETS,
     BIG_MODEL,
-    TEMPERATURE,
+    SMALL_MODEL,
     BIG_MODEL_MAX_TOKENS,
     SMALL_MODEL_MAX_TOKENS,
+    TEMPERATURE,
+    resolve_model_config,
+    lm_kwargs_for,
 )
 from tools import WebSearchTool, FileSystemTool, TodoListTool, SubagentTool
+from logging_config import trace_call, configure_logging
 from utils import setup_langfuse
 from langfuse import observe
 
 
 # Initialize Langfuse tracing once per process (no-op if disabled)
 langfuse = setup_langfuse()
+
+logger = logging.getLogger(__name__)
 
 
 class AgentSignature(dspy.Signature):
@@ -27,7 +35,15 @@ class AgentSignature(dspy.Signature):
 
 
 class Agent(dspy.Module):
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        big_model: str = BIG_MODEL,
+        small_model: str = SMALL_MODEL,
+        temperature: float = TEMPERATURE,
+        big_max_tokens: int = BIG_MODEL_MAX_TOKENS,
+        small_max_tokens: int = SMALL_MODEL_MAX_TOKENS,
+    ) -> None:
         super().__init__()
         # Shared adapter for structured outputs
         # Core tools
@@ -37,20 +53,21 @@ class Agent(dspy.Module):
         self.fs = self.fs_tool  # provide backward-compatible alias
 
         # Lead / subagent language models
+        big_kwargs = lm_kwargs_for(big_model)
+        small_kwargs = lm_kwargs_for(small_model)
+
         self.agent_lm = dspy.LM(
-            model=BIG_MODEL,
-            api_key=OPENAI_API_KEY,
-            temperature=TEMPERATURE,
-            max_tokens=BIG_MODEL_MAX_TOKENS,
+            model=big_model,
+            temperature=temperature,
+            max_tokens=big_max_tokens,
+            **big_kwargs,
         )
         self.subagent_lm = dspy.LM(
-            model=SMALL_MODEL,
-            api_key=OPENAI_API_KEY,
-            temperature=TEMPERATURE,
-            max_tokens=SMALL_MODEL_MAX_TOKENS,
+            model=small_model,
+            temperature=temperature,
+            max_tokens=small_max_tokens,
+            **small_kwargs,
         )
-
-        dspy.configure(lm=self.agent_lm, adapter=ChatAdapter())
 
 
         self.subagent_tools = {
@@ -111,15 +128,63 @@ class Agent(dspy.Module):
             max_iters=3,
         )
 
-    @observe(name="single_loop_agent", capture_input=True, capture_output=True)
+    @trace_call("agent.forward")
+    @observe(name="lead_agent", capture_input=True, capture_output=True)
     def forward(self, query: str) -> dspy.Prediction:
         return self.lead_agent(query=query)
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run the single-loop research agent.")
+    parser.add_argument(
+        "--model",
+        choices=sorted(MODEL_PRESETS.keys()),
+        help="Model preset to use for both big and small slots.",
+    )
+    parser.add_argument("--model-big", dest="model_big", help="Override the big model identifier.")
+    parser.add_argument("--model-small", dest="model_small", help="Override the small model identifier.")
+    parser.add_argument(
+        "--query",
+        default="Lamine vs Doue? Be objective and keep it research short and concise DO NOT ASK ANYTHING ELSE. Try to use tools provided to you to test our system first. Yet there will be no memory artifacts as this is the first session.",
+        help="Query to run through the agent.",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
-    print("Initializing agent...")
-    agent = Agent()
-    print("Starting agent...")
-    result = agent(query="Lamine vs Doue vs KangIn Lee who's better? Be objective and keep it research short and concise DO NOT ASK ANYTHING ELSE. Try to use tools provided to you to test our system first. plz")
+    configure_logging()
+
+    args = parse_args()
+    try:
+        preset = resolve_model_config(args.model, args.model_big, args.model_small)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+
+    logger.info(
+        "Selected models | big=%s small=%s | big_max_tokens=%s | small_max_tokens=%s",
+        preset.big,
+        preset.small,
+        preset.big_max_tokens,
+        preset.small_max_tokens,
+    )
+
+    dspy.configure(
+        lm=dspy.LM(
+            model=preset.big,
+            temperature=TEMPERATURE,
+            max_tokens=preset.big_max_tokens,
+            **lm_kwargs_for(preset.big),
+        ),
+        adapter=ChatAdapter(),
+    )
+
+    agent = Agent(
+        big_model=preset.big,
+        small_model=preset.small,
+        temperature=TEMPERATURE,
+        big_max_tokens=preset.big_max_tokens,
+        small_max_tokens=preset.small_max_tokens,
+    )
+    result = agent(query=args.query)
     dspy.inspect_history(n=5)
     print(result.answer)
 

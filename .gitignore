@@ -16,5 +16,11 @@ memory/
 .cache/
 
 .vscode/
+.codex/
+.cursor/
 
 docs/
+
+logs/
+
+tasks/
