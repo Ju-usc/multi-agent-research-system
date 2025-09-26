@@ -32,10 +32,10 @@ class ModelPreset:
 
 MODEL_PRESETS: Final[dict[str, ModelPreset]] = {
     "gpt-5-mini": ModelPreset(
-        big="openrouter/openai/gpt-5-mini:free",
-        small="openrouter/openai/gpt-5-mini:free",
-        big_max_tokens=16000,
-        small_max_tokens=16000,
+        big="openai/gpt-5-mini",
+        small="openai/gpt-5-mini",
+        big_max_tokens=30000,
+        small_max_tokens=30000,
     ),
     "kimi-k2": ModelPreset(
         big="openrouter/moonshotai/kimi-k2:free",
@@ -66,6 +66,24 @@ MODEL_PRESETS: Final[dict[str, ModelPreset]] = {
 DEFAULT_MODEL_PRESET: Final[str] = "gpt-5-mini"
 
 
+def _resolve_override(
+    override: str | None,
+    *,
+    slot: str,
+    fallback: ModelPreset,
+) -> str:
+    """Return the identifier for a model slot honoring preset aliases."""
+
+    if not override:
+        return getattr(fallback, slot)
+
+    candidate = override.lower()
+    if candidate in MODEL_PRESETS:
+        return getattr(MODEL_PRESETS[candidate], slot)
+
+    return override
+
+
 def resolve_model_config(
     preset: str | None = None,
     big_override: str | None = None,
@@ -77,8 +95,9 @@ def resolve_model_config(
         raise ValueError(f"Unknown model preset '{resolved_name}'. Valid options: {valid}.")
 
     preset_config = MODEL_PRESETS[resolved_name]
-    big_id = big_override or preset_config.big
-    small_id = small_override or preset_config.small
+
+    big_id = _resolve_override(big_override, slot="big", fallback=preset_config)
+    small_id = _resolve_override(small_override, slot="small", fallback=preset_config)
 
     return ModelPreset(
         big=big_id,

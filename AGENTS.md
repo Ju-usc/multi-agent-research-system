@@ -47,9 +47,34 @@ Examples:
   print(fn("input"))
   PY
 
-  # run a focused test
-  uv run pytest -k "<pattern>" -q
-  ```
+# run a focused test
+uv run pytest -k "<pattern>" -q
+```
+
+### Run the agent CLI
+
+Use the repo root as the working directory.
+
+```bash
+uv run python agent.py --query "Summarize recent innovations in AI agent collaboration frameworks."
+```
+
+Change models with the preset shortcut when you need to verify another provider.
+
+```bash
+uv run python agent.py --model kimi-k2 --query "Summarize recent innovations in AI agent collaboration frameworks."
+```
+
+### Logs
+
+Runs write structured trace files under `logs/`.
+
+```bash
+TRACE_LOG_FILENAME=trace-ai-collab.log LOG_LEVEL=DEBUG \
+  uv run python agent.py --query "Summarize recent innovations in AI agent collaboration frameworks."
+```
+
+The example stores the run at `logs/trace-ai-collab.log`. Pre-create directories if you supply a nested path.
 
 ---
 

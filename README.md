@@ -25,6 +25,33 @@ A minimal multi-agent research system, built with DSPy, inspired by [Anthropicâ€
 3. Subagents use **web_search** and may `fs_write_report(...)`; each returns a **summary**.  
 4. Lead **reads artifacts**, updates the To-Do, and **synthesizes** the answer; iterate if gaps remain.
 
+## Quick CLI run
+
+Run the lead agent from the repository root.
+
+```bash
+uv run python agent.py --query "Summarize recent innovations in AI agent collaboration frameworks."
+```
+
+Swap models with the preset flag when you want to test different providers.
+
+```bash
+uv run python agent.py --model kimi-k2 --query "Summarize recent innovations in AI agent collaboration frameworks."
+```
+
+## Logs
+
+CLI runs emit structured traces under `logs/` by default.
+
+Use `TRACE_LOG_FILENAME` to pick an easy-to-remember name.
+
+```bash
+TRACE_LOG_FILENAME=trace-ai-collab.log LOG_LEVEL=DEBUG \
+  uv run python agent.py --query "Summarize recent innovations in AI agent collaboration frameworks."
+```
+
+The example above writes `logs/trace-ai-collab.log`. Create directories ahead of time if you specify a path.
+
 ## License
 
 MIT
