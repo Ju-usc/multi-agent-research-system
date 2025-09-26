@@ -40,8 +40,8 @@ MODEL_PRESETS: Final[dict[str, ModelPreset]] = {
     "kimi-k2": ModelPreset(
         big="openrouter/moonshotai/kimi-k2:free",
         small="openrouter/moonshotai/kimi-k2:free",
-        big_max_tokens=8000,
-        small_max_tokens=8000,
+        big_max_tokens=30000,
+        small_max_tokens=30000,
     ),
     "qwen3-coder": ModelPreset(
         big="openrouter/qwen/qwen3-coder:free",
@@ -52,36 +52,41 @@ MODEL_PRESETS: Final[dict[str, ModelPreset]] = {
     "gpt-oss-120b": ModelPreset(
         big="openrouter/openai/gpt-oss-120b:free",
         small="openrouter/openai/gpt-oss-120b:free",
-        big_max_tokens=12000,
-        small_max_tokens=12000,
+        big_max_tokens=30000,
+        small_max_tokens=30000,
     ),
     "deepseek-v3.1": ModelPreset(
         big="openrouter/deepseek/deepseek-chat-v3.1:free",
         small="openrouter/deepseek/deepseek-chat-v3.1:free",
-        big_max_tokens=12000,
-        small_max_tokens=12000,
+        big_max_tokens=30000,
+        small_max_tokens=30000,
     ),
 }
 
 DEFAULT_MODEL_PRESET: Final[str] = "gpt-5-mini"
-
 
 def _resolve_override(
     override: str | None,
     *,
     slot: str,
     fallback: ModelPreset,
-) -> str:
-    """Return the identifier for a model slot honoring preset aliases."""
+) -> tuple[str, int]:
+    """Resolve model id and token cap for a slot using preset aliases."""
+
+    fallback_tokens = getattr(fallback, f"{slot}_max_tokens")
 
     if not override:
-        return getattr(fallback, slot)
+        return getattr(fallback, slot), fallback_tokens
 
     candidate = override.lower()
     if candidate in MODEL_PRESETS:
-        return getattr(MODEL_PRESETS[candidate], slot)
+        preset = MODEL_PRESETS[candidate]
+        tokens = getattr(preset, f"{slot}_max_tokens")
+        return getattr(preset, slot), tokens
 
-    return override
+    raise ValueError(
+        f"Unknown model override '{override}'. Use one of: {', '.join(sorted(MODEL_PRESETS))}."
+    )
 
 
 def resolve_model_config(
@@ -96,14 +101,14 @@ def resolve_model_config(
 
     preset_config = MODEL_PRESETS[resolved_name]
 
-    big_id = _resolve_override(big_override, slot="big", fallback=preset_config)
-    small_id = _resolve_override(small_override, slot="small", fallback=preset_config)
+    big_id, big_tokens = _resolve_override(big_override, slot="big", fallback=preset_config)
+    small_id, small_tokens = _resolve_override(small_override, slot="small", fallback=preset_config)
 
     return ModelPreset(
         big=big_id,
         small=small_id,
-        big_max_tokens=preset_config.big_max_tokens,
-        small_max_tokens=preset_config.small_max_tokens,
+        big_max_tokens=big_tokens,
+        small_max_tokens=small_tokens,
     )
 
 
