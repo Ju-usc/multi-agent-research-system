@@ -84,9 +84,8 @@ def _resolve_override(
         tokens = getattr(preset, f"{slot}_max_tokens")
         return getattr(preset, slot), tokens
 
-    raise ValueError(
-        f"Unknown model override '{override}'. Use one of: {', '.join(sorted(MODEL_PRESETS))}."
-    )
+    # Accept fully qualified model identifiers while defaulting to the preset token cap.
+    return override, fallback_tokens
 
 
 def resolve_model_config(
