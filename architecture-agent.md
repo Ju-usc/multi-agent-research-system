@@ -18,32 +18,33 @@ ReAct-style orchestration: a **Lead Agent** plans via a **To-Do List**, uses fil
 ## Tools (fixed surfaces)
 
 **Lead tools**
-- `todo.add|update|mark` — manage To-Dos.
-- `fs_list(path)` — list artifacts (filesystem tree discovery).
-- `fs_read(path)` — read artifact contents.
-- `spawn_subagent(task, [artifact_path])` → `{ summary }`
-  - Executes a Subagent with its own tools.
-  - Can be invoked in parallel for multiple tasks.
+- `todo_list_read()` — return the full To-Do payload as JSON.
+- `todo_list_write(todos)` — write the entire To-Do list as a JSON payload.
+- `filesystem_read(path)` — read a markdown artifact stored under the sandboxed `memory/` root.
+- `filesystem_tree(max_depth)` — list artifacts under `memory/` for quick discovery.
+- `subagent_parallel_run(calls)` — launch several subagents with validated task payloads.
 
 **Subagent tools**
 - `web_search(query, …)` — research on the web.
-- `fs_write_report(path, markdown)` → `{ path, bytes }` (sandboxed write)
+- `filesystem_write(path, markdown)` — append or overwrite markdown artifacts under the sandboxed memory root.
 
 ## Contracts (minimal)
 
-- **Subagent input:** `{ task, (optional) artifact_path }`
-- **Subagent output:**  
-  `{"summary": "<brief findings; may include 'artifact: <path>'>"}`
+- **Subagent input:** `{ task }`
+- **Subagent output:** structured JSON with `summary`.
+
+  Optional `detail` and `artifact_path` appear when the subagent writes a report under `memory/`.
+- **Task shape:** `task_name`, `prompt`, `description`, `tool_budget` stay required. Add `expected_output` when you know the artifact; skip it when exploring.
 - **No filesystem reads by Subagents.** Artifacts are written by Subagents, read by the Lead.
 
 ## High-level loop (illustrative, not prescriptive)
 
-1) **Decompose → To-Do:** capture high-level plans as To-Dos.  
-2) **Inspect:** `fs_list` / `fs_read` to reuse existing artifacts.  
-3) **Dispatch:** `spawn_subagent` for active To-Dos or decomposed sub-tasks (parallel allowed).  
-4) **Collect:** aggregate Subagent `summary` outputs; artifacts may be referenced inline.  
-5) **Update:** mark/adjust To-Dos; add follow-ups for uncovered aspects.  
-6) **Synthesize & stop:** produce the answer; finalize when the Lead judges it complete.
+1) **Decompose → To-Do:** capture high-level plans as To-Dos.
+2) **Inspect:** call `filesystem_tree` then `filesystem_read` to reuse artifacts.
+3) **Dispatch:** call `subagent_parallel_run` for the active tasks when parallelism helps.
+4) **Collect:** aggregate subagent summaries and note any referenced artifacts.
+5) **Update:** adjust To-Dos through `todo_list_write` and add follow-ups for gaps.
+6) **Synthesize & stop:** produce the answer and stop when the Lead judges it complete.
 
 > Prompting guidelines and control heuristics emerge via optimization (e.g., SIMBA/GEPA); the loop remains flexible.
 
@@ -59,12 +60,11 @@ flowchart LR
 
   S1 -->|web_search| W[(Web)]
   S2 -->|web_search| W
-  S1 -->|fs_write_report| A
-  S2 -->|fs_write_report| A
+  S1 -->|filesystem_write| A
+  S2 -->|filesystem_write| A
 
   S1 -->|summary| L
   S2 -->|summary| L
 
-  L -->|read| A
+  L -->|filesystem_read| A
   L --> F[Finalize when sufficient]
-

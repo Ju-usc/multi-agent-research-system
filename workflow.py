@@ -11,11 +11,16 @@ import logging
 
 # Import from new modules
 from config import (
-    BRAVE_SEARCH_API_KEY, OPENROUTER_API_KEY, OPENROUTER_BASE_URL, OPENAI_API_KEY,
-    SMALL_MODEL, BIG_MODEL, TEMPERATURE, BIG_MODEL_MAX_TOKENS, SMALL_MODEL_MAX_TOKENS
+    BRAVE_SEARCH_API_KEY,
+    BIG_MODEL,
+    SMALL_MODEL,
+    BIG_MODEL_MAX_TOKENS,
+    SMALL_MODEL_MAX_TOKENS,
+    TEMPERATURE,
+    lm_kwargs_for,
 )
 from models import (
-    SubagentTask, SubagentResult, FileSystem,
+    SubagentTask, SubagentResult,
     PlanResearch, ExecuteSubagentTask, SynthesizeAndDecide, FinalReport
 )
 from tools import (
@@ -36,16 +41,24 @@ langfuse = setup_langfuse()
 class LeadAgent(dspy.Module):
     """Lead agent: plans once, launches parallel subagents, synthesizes, then decides."""
 
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        big_model: str = BIG_MODEL,
+        small_model: str = SMALL_MODEL,
+        temperature: float = TEMPERATURE,
+        big_max_tokens: int = BIG_MODEL_MAX_TOKENS,
+        small_max_tokens: int = SMALL_MODEL_MAX_TOKENS,
+    ):
         super().__init__()
-        self.fs = FileSystem()
         self.cycle_idx = 0  # Track cycles
         # Single BAML adapter instance used across all modules
         self.baml_adapter = BAMLAdapter()
 
         # Initialize tool instances
         self.web_search_tool = WebSearchTool(BRAVE_SEARCH_API_KEY)
-        self.fs_tool = FileSystemTool(self.fs)
+        self.fs_tool = FileSystemTool()
+        self.fs = self.fs_tool
 
         # Create DSPy tools from class instances
         self.tools = {
@@ -68,10 +81,10 @@ class LeadAgent(dspy.Module):
 
         # Initialize language models
         self.planner_lm = dspy.LM(
-            model=BIG_MODEL,
-            api_key=OPENAI_API_KEY,
-            temperature=TEMPERATURE,
-            max_tokens=BIG_MODEL_MAX_TOKENS,
+            model=big_model,
+            temperature=temperature,
+            max_tokens=big_max_tokens,
+            **lm_kwargs_for(big_model),
         )
         # Create modules without context - we'll set context during execution
         planning_tools = [self.tools["web_search"], self.tools["filesystem_read"], self.tools["filesystem_tree"]]
@@ -80,26 +93,26 @@ class LeadAgent(dspy.Module):
 
         # Subagents run on the small model
         self.subagent_lm = dspy.LM(
-            model=SMALL_MODEL,
-            api_key=OPENAI_API_KEY,
-            temperature=TEMPERATURE,
-            max_tokens=SMALL_MODEL_MAX_TOKENS,
+            model=small_model,
+            temperature=temperature,
+            max_tokens=small_max_tokens,
+            **lm_kwargs_for(small_model),
         )
 
         self.synthesizer_lm = dspy.LM(
-            model=SMALL_MODEL,
-            api_key=OPENAI_API_KEY,
-            temperature=TEMPERATURE,
-            max_tokens=SMALL_MODEL_MAX_TOKENS,
+            model=small_model,
+            temperature=temperature,
+            max_tokens=small_max_tokens,
+            **lm_kwargs_for(small_model),
         )
         self.synthesizer = dspy.ChainOfThought(SynthesizeAndDecide)
         self.synthesizer.adapter = self.baml_adapter
 
         self.final_report_lm = dspy.LM(
-            model=BIG_MODEL,
-            api_key=OPENAI_API_KEY,
-            temperature=TEMPERATURE,
-            max_tokens=BIG_MODEL_MAX_TOKENS,
+            model=big_model,
+            temperature=temperature,
+            max_tokens=big_max_tokens,
+            **lm_kwargs_for(big_model),
         )
         
         # Final report generation module
@@ -183,11 +196,8 @@ class LeadAgent(dspy.Module):
         Returns:
             PlanResult prediction containing tasks and reasoning
         """
-        # Get current filesystem structure
-        memory_tree = self.fs.tree()
-
         with dspy.context(lm=self.planner_lm):
-            plan = await self.planner.acall(query=query, memory_tree=memory_tree)
+            plan = await self.planner.acall(query=query)
 
         # Determine a safe filename (tests may not set plan.plan_filename)
         plan_filename = getattr(plan, "plan_filename", None) or "test-plan"
@@ -215,12 +225,9 @@ class LeadAgent(dspy.Module):
         Returns:
             SynthesisResult prediction containing decision and synthesis
         """
-        # Get updated filesystem structure
-        memory_tree = self.fs.tree()
-
         with dspy.context(lm=self.synthesizer_lm):
             decision = await self.synthesizer.acall(
-                query=query, memory_tree=memory_tree, completed_results=results
+                query=query, completed_results=results
             )
 
         # Write synthesis to filesystem
@@ -241,13 +248,9 @@ class LeadAgent(dspy.Module):
         Returns:
             Markdown formatted final report
         """
-        # Get full filesystem structure
-        memory_tree = self.fs.tree(max_depth=None)
-        
         with dspy.context(lm=self.final_report_lm):
             final_result = await self.final_reporter.acall(
                 query=query,
-                memory_tree=memory_tree,
                 final_synthesis=final_synthesis,
             )
 

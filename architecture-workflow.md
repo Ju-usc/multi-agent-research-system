@@ -7,14 +7,15 @@ Structured pipeline reflecting the same roles with a fixed sequence.
 ## Sequence
 
 1. **Plan (ReAct)**
-   - A plan module/agent maintains a **To-Do List** of high-level plans (using a To-Do tool).
-   - Reads existing artifacts to maintain context.
+   - A plan module/agent maintains a **To-Do List** of high-level plans using `todo_list_read` and `todo_list_write`.
+   - Reads existing artifacts through `filesystem_tree` then `filesystem_read` to maintain context.
    - Emits a set of **parallelizable tasks** as artifacts for subagents.
+   - Add `expected_output` when you already know the deliverable; leave it out when the task is exploratory.
 
 2. **Execute (parallel)**
-   - Spawn Subagents to complete tasks.
-   - Each Subagent uses `web_search` and may `fs_write_report(path, markdown)`.
-   - Each returns a minimal `summary`.
+   - Spawn subagents through `subagent_parallel_run` to complete tasks.
+   - Each subagent uses `web_search` and may call `filesystem_write(path, markdown)`.
+   - Each returns a structured summary with optional detail and `artifact_path`.
 
 3. **Synthesize (decide)**
    - Lead reads artifacts and integrates results.
@@ -37,3 +38,16 @@ flowchart TD
   E --> S[Synthesize and Decide]
   S -->|Refined Plan or Query| P
   S --> F[Finalize Answer]
+
+```
+
+---
+
+## Memory layout
+
+- `memory/` is the sandbox root shared by all tools.
+- Each cycle writes to `memory/cycle_<index:03d>/`.
+- Planner outputs land at `memory/cycle_<index:03d>/<plan_filename>.md`.
+- Each subagent writes `memory/cycle_<index:03d>/<task_name>/result.md`.
+- Synthesis lives at `memory/cycle_<index:03d>/synthesis.md`.
+- Final reports save to `memory/cycle_<index:03d>/final_report.md`.

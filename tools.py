@@ -3,17 +3,16 @@ Tool implementations for the multi-agent research system.
 All tools are implemented as classes with __call__ methods unless class methods are used to call the tool.
 """
 
-import asyncio
-import functools
-from typing import Dict, List, Any, Optional
-from datetime import datetime
 import logging
-import re
+from typing import Dict, List, Any, Optional
 import json
 import dspy
-from brave_search_python_client import BraveSearch, WebSearchRequest
+from pathlib import Path
+from exa_py import Exa
+from langfuse import observe
+from config import EXA_API_KEY
+from logging_config import trace_call
 from models import (
-    FileSystem,
     Todo,
     SubagentTask,
     SubagentResult,
@@ -21,127 +20,179 @@ from models import (
 )
 
 
+logger = logging.getLogger(__name__)
+# ---------- WebSearch ----------
+
 class WebSearchTool:
-    """Web search tool using Brave Search API."""
-    
-    def __init__(self, api_key: str):
-        """Initialize with Brave Search API key."""
-        self.api_key = api_key
-        self.client = BraveSearch(api_key=api_key)
-    
-    async def __call__(self, query: str, count: int = 5) -> str:
-        """Execute web search.
-        
-        Args:
-            query: Search query
-            count: Number of results (default: 5, max: 5)
-            
-        Returns:
-            Formatted search results as markdown
-        """
-        if count > 5:
-            count = 5
-        
+    """Call Exa's search API and format the hits as a markdown list."""
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        *,
+        max_results: int = 10,
+        max_snippet_length: int = 10_000,
+        search_type: str = "auto",
+    ) -> None:
+        key = api_key or EXA_API_KEY
+        if not key:
+            raise ValueError("EXA_API_KEY is required to initialize WebSearchTool")
+
+        self.client = Exa(key)
+        self.max_results = max(1, max_results)
+        self.max_snippet_length = max_snippet_length
+        self.search_type = search_type
+
+    @trace_call("tool_web_search")
+    @observe(name="tool_web_search", capture_input=True, capture_output=True)
+    def __call__(self, query: str, count: int = 3, snippet_length: int = 2000) -> str:
+        """Return up to `count` results with snippets trimmed to the requested length."""
+        query = query.strip()
+        if not query:
+            return "# Search Error\n\nQuery cannot be empty."
+
+        num_results = max(1, min(count, self.max_results))
+        snippet_length = max(100, min(snippet_length, self.max_snippet_length))
+
+        kwargs: Dict[str, Any] = {
+            "num_results": num_results,
+            "type": self.search_type,
+            "text": True,
+        }
+
         try:
-            response = await self.client.web(WebSearchRequest(q=query, count=count))
-            
-            if not response.web or not response.web.results:
-                return f"No results found for '{query}'"
+            response = self.client.search_and_contents(
+                query,
+                **kwargs,
+            )
+        except Exception as exc:
+            return f"# Search Error\n\nError searching for '{query}': {exc}"
 
-            # Format results as markdown
-            content_lines = [f"# Search results for '{query}'", ""]
-            
-            for i, result in enumerate(response.web.results[:count], 1):
-                content_lines.extend([
-                    f"## {i}. {result.title}",
-                    f"{result.description}",
-                    f"**URL:** {result.url}",
-                    ""
-                ])
-            
-            return "\n".join(content_lines)
-        except Exception as e:
-            return f"# Search Error\n\nError searching for '{query}': {e}"
+        if not response.results:
+            return f"No results found for '{query}'"
+        lines: List[str] = []
+        for idx, item in enumerate(response.results, 1):
+            title = item.title or "Untitled"
+            context = (item.summary or item.text or "").strip()[:snippet_length]
+            lines.append(f"{idx}. {title}\n{context}\n{item.url}")
+        output = "\n\n".join(lines)
+        return output
 
+class ParallelToolCall:
+    """Run several tool invocations concurrently and return their outputs.
 
+    Up to four calls execute in parallel threads. Example:
 
-
-class ParallelSearchTool:
-    """Execute multiple searches in parallel for efficiency."""
-    
-    def __init__(self, tools: Dict[str, Any]):
-        """Initialize with available tools dictionary."""
-        self.tools = tools
-    
-    async def __call__(self, calls: list[dict]) -> list[str]:
-        """Execute multiple tool calls in parallel.
-        
-        Args:
-            calls: List of dicts with 'tool_name' and 'args' keys
-                Example: [
-                    {"tool_name": "web_search", "args": {"query": "Python programming"}},
-                    {"tool_name": "memory_read", "args": {"key": "1-plan"}}
-                ]
-        
-        Returns:
-            List of results from each tool call
-        """
-        async def execute_call(call):
-            tool_name = call.get("tool_name")
-            args = call.get("args", {})
-            
-            if tool_name not in self.tools:
-                return f"Unknown tool: {tool_name}"
-            
-            tool = self.tools[tool_name]
-            
-            # Check if tool is async
-            if asyncio.iscoroutinefunction(tool):
-                return await tool(**args)
-            else:
-                # Run sync functions in executor to avoid blocking
-                loop = asyncio.get_event_loop()
-                return await loop.run_in_executor(None, functools.partial(tool, **args))
-        
-        # Execute all calls in parallel
-        results = await asyncio.gather(*[execute_call(call) for call in calls], return_exceptions=True)
-        
-        # Convert exceptions to error messages
-        return [
-            str(r) if isinstance(r, Exception) else r
-            for r in results
+        [
+            {"tool": "web_search", "args": {"query": "multi-agent"}},
+            {"tool": "filesystem_read", "args": {"path": "summary.md"}},
         ]
+    """
 
+    def __init__(self, tools: Dict[str, Any], *, num_threads: int = 4) -> None:
+        self.tools = tools
+        self._num_threads = num_threads
+
+    @trace_call("tool_parallel_tool_call")
+    @observe(name="tool_parallel_tool_call", capture_input=True, capture_output=True)
+    def __call__(self, calls: list[dict]) -> list[str]:
+        """Calls must be dicts of the form {'tool': str, 'args': dict}."""
+        if not calls:
+            return []
+
+        parallel = dspy.Parallel(num_threads=self._num_threads, provide_traceback=True)
+        exec_pairs = [(self._invoke, (call,)) for call in calls]
+        results = parallel(exec_pairs)
+        return [str(result) for result in results]
+
+    def _invoke(self, call: dict) -> Any:
+        name = call.get("tool")
+        args = call.get("args", {})
+        tool = self.tools.get(name)
+        if tool is None:
+            return f"Unknown tool: {name}"
+
+        try:
+            return tool(**args)
+        except Exception as error:
+            logger.exception("Tool %s failed", name)
+            return f"Tool error ({name}): {error}"
+
+
+# ---------- FileSystem ----------
 
 class FileSystemTool:
-    """Tool for interacting with the research filesystem."""
-    
-    def __init__(self, fs: FileSystem):
-        """Initialize with FileSystem instance."""
-        self.fs = fs
-    
-    def tree(self, max_depth: int = 3) -> str:
-        """Show filesystem structure.
-        
-        Args:
-            max_depth: Maximum depth to display (default: 3)
-            
-        Returns:
-            ASCII tree representation of research memory
-        """
-        return self.fs.tree(max_depth)
-    
-    def read(self, path: str) -> str:
-        """Read file content by path.
-        
-        Args:
-            path: Relative path from memory root (e.g., 'cycle_001/plan.md')
-            
-        Returns:
-            File content or error message if not found
-        """
-        return self.fs.read(path)
+    """File system for research memory.
 
+    - Defaults to root="memory" when no argument is provided
+    - Methods: write, read, exists, tree, clear
+    """
+
+    def __init__(self, root: str = "memory"):
+        self.root = Path(root)
+        self.root.mkdir(exist_ok=True)
+
+        # Cache resolved root for simple path safety checks
+        try:
+            self._resolved_root = self.root.resolve()
+        except Exception:
+            self._resolved_root = self.root
+
+    @trace_call("tool_filesystem_write")
+    @observe(name="tool_filesystem_write", capture_input=True, capture_output=True)
+    def write(self, path: str, content: str) -> Path:
+        file_path = self.root / path
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(content)
+        return file_path
+
+    @trace_call("tool_filesystem_read")
+    @observe(name="tool_filesystem_read", capture_input=True, capture_output=True)
+    def read(self, path: str) -> str:
+        file_path = self.root / path
+        if not file_path.exists():
+            return f"[ERROR] File not found: {path}"
+        return file_path.read_text()
+
+    def exists(self, path: str) -> bool:
+        return (self.root / path).exists()
+
+    @trace_call("tool_filesystem_tree")
+    @observe(name="tool_filesystem_tree", capture_input=True, capture_output=True)
+    def tree(self, max_depth: Optional[int] = 3) -> str:
+        paths: List[str] = []
+        self._collect_paths(self.root, "", paths, max_depth, 0)
+
+        root_label = f"{str(self.root).rstrip('/')}/"
+        if not paths:
+            return f"{root_label} (empty)"
+        return "\n".join([root_label] + sorted(paths))
+
+    def _collect_paths(self, path: Path, relative_path: str, paths: list,
+                       max_depth: Optional[int], current_depth: int) -> None:
+        if max_depth is not None and current_depth >= max_depth:
+            return
+
+        try:
+            items = sorted(path.iterdir(), key=lambda x: (not x.is_dir(), x.name))
+        except FileNotFoundError:
+            return
+
+        for item in items:
+            item_path = f"{relative_path}{item.name}" if relative_path else item.name
+            if item.is_dir():
+                paths.append(f"{item_path}/")
+                self._collect_paths(item, f"{item_path}/", paths, max_depth, current_depth + 1)
+            else:
+                paths.append(item_path)
+
+    def clear(self) -> None:
+        import shutil
+        if self.root.exists():
+            shutil.rmtree(self.root)
+        self.root.mkdir(exist_ok=True)
+
+# ---------- TodoList ----------
 
 class TodoListTool:
     """Run-scoped todo store. Accepts our built Todo model list; minimal and strict."""
@@ -149,6 +200,8 @@ class TodoListTool:
     def __init__(self) -> None:
         self._todos: List[Todo] = []
 
+    @trace_call("tool_todo_write")
+    @observe(name="tool_todo_write", capture_input=True, capture_output=True)
     def write(self, todos: List[Todo]) -> str:
         """Replace the todo list with the given list[Todo] and return Json string"""
         try:
@@ -163,6 +216,8 @@ class TodoListTool:
         except Exception as e:
             return f"Error writing todos: {e}"
         
+    @trace_call("tool_todo_read")
+    @observe(name="tool_todo_read", capture_input=True, capture_output=True)
     def read(self) -> str:
         """Return the current todos as Json string"""
         try:
@@ -176,38 +231,57 @@ class TodoListTool:
             return f"Error reading todos: {e}"
 
 
-class SubagentTool:
-    """Execute subagent tasks with per-task instruction via with_instruction.
+# ---------- SubagentTool ----------
 
-    - Input: tasks: list[SubagentTask]
-    - Prompt source: task.prompt (excluded from task serialization)
-    - Tools: provided by caller (agent-configured allowlist)
-    - Output: SubagentResult or list thereof (via parallel_run)
-    - Persistence: none; caller handles filesystem writes
-    """
+class SubagentTool(dspy.Module):
+    """Execute subagent tasks with per-task instruction via with_instruction."""
 
-    def __init__(self, tools: Dict[str, Any], lm: Any, adapter: Optional[Any] = None) -> None:
+    def __init__(self, tools: List[dspy.Tool], lm: Any, adapter: Optional[Any] = None) -> None:
+        super().__init__()
         self._tools = tools
         self._lm = lm
         self._adapter = adapter
-    
-    async def run(self, task: SubagentTask) -> SubagentResult:
-        # Prepare instruction-layered signature
-        output_signature = ExecuteSubagentTask.with_instruction(task.prompt)
 
-        try:
-            # Execute with provided LM and optional adapter
-            with dspy.context(lm=self._lm):
-                subAgent = dspy.ReAct(output_signature, tools=self._tools, max_iters=task.tool_budget)
-                subAgent.adapter = self._adapter
-                result = await subAgent.acall(task=task)
+    @trace_call("tool_subagent")
+    @observe(name="tool_subagent", capture_input=True, capture_output=True)
+    def forward(self, task: SubagentTask) -> Optional[SubagentResult]:
+        # Append the task prompt from the lead agent to the existing instructions
+        current_instructions = ExecuteSubagentTask.instructions
+        new_instructions = current_instructions + "\n" + task.prompt
+        new_signature = ExecuteSubagentTask.with_instructions(instructions=new_instructions)
 
-            final = result.final_result
-            # Preserve the originating task_name instead of relying on LLM output
-            final.task_name = task.task_name
-            return final
-        except Exception as e:
-            raise e
+        subagent = dspy.ReAct(new_signature, tools=self._tools, max_iters=task.tool_budget)
+        subagent.lm = self._lm
+        subagent.adapter = self._adapter
+        
+        with dspy.context(lm=self._lm, adapter=self._adapter):
+            prediction = subagent(task=task)
 
-    async def parallel_run(self, tasks: List[SubagentTask]) -> List[SubagentResult]:
-        return await asyncio.gather(*[self.run(task) for task in tasks], return_exceptions=True)
+        final = prediction.final_result
+        final.task_name = task.task_name
+        return final
+
+    @trace_call("tool_subagent_parallel_run")
+    @observe(name="tool_subagent_parallel_run", capture_input=True, capture_output=True)
+    def parallel_run(self, tasks: List[SubagentTask]) -> str:
+        if not tasks:
+            return json.dumps({"successes": [], "failures": []}, indent=2)
+
+        examples = [dspy.Example(task=task).with_inputs("task") for task in tasks]
+
+        results, failed_examples, exceptions = self.batch(
+            examples,
+            return_failed_examples=True,
+            max_errors=len(examples),
+            provide_traceback=True,
+        )
+
+        summary = {
+            "successes": [res.model_dump() for res in results],
+            "failures": [
+                {"task_name": ex.task.task_name, "error": str(err)}
+                for ex, err in zip(failed_examples, exceptions)
+            ],
+        }
+
+        return json.dumps(summary, indent=2)

@@ -1,9 +1,14 @@
 ## Useful Docs
 
+Start with README.md for the high-level tour.
+
+> Architecture details such as tool names or model choices evolve. Always cross-check the architecture docs for the current truth.
+
 See also:
-- @README.md — project overview
+- @README.md — project overview (Before starting any task, read this file)
 - @architecture-agent.md — agent architecture (primary direction)
 - @architecture-workflow.md — workflow architecture (structured pipeline)
+- @.codex/ — additional useful rules/guidelines (Before starting any task, read this file)
 
 ---
 
@@ -21,7 +26,7 @@ uv run pytest -k <pattern> -q
 
 # Lint (if configured)
 uv run ruff check .
-````
+```
 
 > Prefer `uv` over direct `python/pip` to stay inside the project venv.
 
@@ -36,16 +41,41 @@ uv run ruff check .
 
 Examples:
 
-```bash
-# one-off check
-uv run python - <<'PY'
-from module import fn
-print(fn("input"))
-PY
+  ```bash
+  # one-off check
+  uv run python - <<'PY'
+  from module import fn
+  print(fn("input"))
+  PY
 
 # run a focused test
 uv run pytest -k "<pattern>" -q
 ```
+
+### Run the agent CLI
+
+Use the repo root as the working directory.
+
+```bash
+uv run python agent.py --query "Summarize recent innovations in AI agent collaboration frameworks."
+```
+
+Change models with the preset shortcut when you need to verify another provider.
+
+```bash
+uv run python agent.py --model kimi-k2 --query "Summarize recent innovations in AI agent collaboration frameworks."
+```
+
+### Logs
+
+Runs write structured trace files under `logs/`.
+
+```bash
+TRACE_LOG_FILENAME=trace-ai-collab.log LOG_LEVEL=DEBUG \
+  uv run python agent.py --query "Summarize recent innovations in AI agent collaboration frameworks."
+```
+
+The example stores the run at `logs/trace-ai-collab.log`. Pre-create directories if you supply a nested path.
 
 ---
 
@@ -128,3 +158,39 @@ uv run pytest -k "<pattern>" -q
 * No secrets in code/logs; limits respected.
 * Interfaces unchanged or documented; update @architecture-\*.md if contracts changed.
 * Logs are structured and concise.
+
+---
+
+## Agentic Coding Workflow MODE (SHOULD BE ASKED FOR BY USER OR ASKED FOR PROACTIVELY IF RELEVANT)
+
+0. Tasks
+
+- Operating on a task basis. Store all intermediate context in markdown files in tasks/<task-id>/ folders.
+- Use semantic task id slugs
+
+1. Research
+
+- Find existing patterns in this codebase
+- Search internet, mcp tools if relevant
+- Start by asking follow up questions to set the direction of research
+- Report findings in research.md file
+
+2. Planning
+
+- Read the research.md in tasks for <task-id>.
+- Based on the research come up with a plan for implementing the user request. We should reuse existing patterns, components and code where possible.
+- If needed, ask clarifying questions to user to understand the scope of the task
+- Write the comprehensive plan to plan.md. The plan should include all context required for an engineer to implement the feature.
+- Wait for user to read and approve the plan
+
+3. Implementation
+
+- Read. plan.md and create a todo-list with all items, then execute on the plan.
+- Go for as long as possible. If ambiguous, leave all questions to the end and group them.
+
+4. Verification
+
+- Once implementation is complete, you must verify that the implementation meets the requirements and is free of bugs.
+- Do this by running tests, making tool calls and checking the output.
+- If there are any issues, go back to the implementation step and make the necessary changes.
+- Once verified, update the task status to "verified".

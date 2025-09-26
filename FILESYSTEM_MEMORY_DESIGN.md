@@ -25,15 +25,16 @@ memory/
 
 ### Implementation
 
-**FileSystem Class** (models.py)
-- Simple wrapper around pathlib
+**FileSystemTool** (tools.py)
+- Canonical filesystem implementation for research memory
+- Default root is `"memory"` via `__init__(root="memory")`
 - Methods: `write()`, `read()`, `tree()`, `exists()`, `clear()`
 - Tree output: Simple path listing for LLM parsing
 
 **Key Changes**
 - `SubagentTask.task_name`: Filesystem-friendly directory name
 - `PlanResearch.plan_filename`: Descriptive plan filename  
-- `memory_tree` replaces `memory_summaries` in DSPy signatures
+- Agents request structure on demand via the `filesystem_tree` tool instead of passing a cached `memory_tree`
 - WebSearchTool returns plain text (DSPy compatibility)
 
 ### Benefits
