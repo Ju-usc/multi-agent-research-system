@@ -5,9 +5,10 @@ Start with README.md for the high-level tour.
 > Architecture details such as tool names or model choices evolve. Always cross-check the architecture docs for the current truth.
 
 See also:
-- @README.md — project overview
+- @README.md — project overview (Before starting any task, read this file)
 - @architecture-agent.md — agent architecture (primary direction)
 - @architecture-workflow.md — workflow architecture (structured pipeline)
+- @.codex/ — additional useful rules/guidelines (Before starting any task, read this file)
 
 ---
 

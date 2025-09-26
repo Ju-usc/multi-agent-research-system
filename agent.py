@@ -15,7 +15,7 @@ from config import (
     resolve_model_config,
     lm_kwargs_for,
 )
-from tools import WebSearchTool, FileSystemTool, TodoListTool, SubagentTool
+from tools import WebSearchTool, FileSystemTool, TodoListTool, SubagentTool, ParallelToolCall
 from logging_config import trace_call, configure_logging
 from utils import setup_langfuse
 from langfuse import observe
@@ -25,6 +25,8 @@ from langfuse import observe
 langfuse = setup_langfuse()
 
 logger = logging.getLogger(__name__)
+
+
 
 
 class AgentSignature(dspy.Signature):
@@ -83,6 +85,13 @@ class Agent(dspy.Module):
             ),
         }
 
+        subagent_parallel_tool = ParallelToolCall(self.subagent_tools, num_threads=4)
+        self.subagent_tools["parallel_tool_call"] = dspy.Tool(
+            subagent_parallel_tool,
+            name="parallel_tool_call",
+            desc="Run multiple subagent tools in parallel with a single call.",
+        )
+
         # Subagent execution tool 
         self.subagent_tool = SubagentTool(
             tools=list(self.subagent_tools.values()),
@@ -118,6 +127,13 @@ class Agent(dspy.Module):
                 desc="Kick off several subagents at once; each runs web search and writes back findings.",
             ),
         }
+
+        lead_parallel_tool = ParallelToolCall(self.lead_agent_tools, num_threads=4)
+        self.lead_agent_tools["parallel_tool_call"] = dspy.Tool(
+            lead_parallel_tool,
+            name="parallel_tool_call",
+            desc="Run multiple lead tools in parallel with a single call.",
+        )
 
 
 
@@ -186,6 +202,7 @@ def main() -> None:
     )
     result = agent(query=args.query)
     dspy.inspect_history(n=5)
+
     print(result.answer)
 
 if __name__ == "__main__":

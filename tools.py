@@ -3,18 +3,13 @@ Tool implementations for the multi-agent research system.
 All tools are implemented as classes with __call__ methods unless class methods are used to call the tool.
 """
 
-import asyncio
 import logging
-from concurrent.futures import ThreadPoolExecutor
-import functools
 from typing import Dict, List, Any, Optional
 import json
 import dspy
 from pathlib import Path
 from exa_py import Exa
 from langfuse import observe
-import litellm.utils as litellm_utils
-from litellm.litellm_core_utils import thread_pool_executor as litellm_thread_pool
 from config import EXA_API_KEY
 from logging_config import trace_call
 from models import (
@@ -26,49 +21,6 @@ from models import (
 
 
 logger = logging.getLogger(__name__)
-
-
-def _executor_is_live(executor: Optional[ThreadPoolExecutor]) -> bool:
-    """Return True when the LiteLLM executor can accept new work."""
-
-    if executor is None:
-        return False
-
-    shutdown = getattr(executor, "_shutdown", False)
-    broken = getattr(executor, "_broken", False)
-    return not shutdown and not broken
-
-
-def _reset_litellm_executor() -> Optional[ThreadPoolExecutor]:
-    """Recreate LiteLLM's shared ThreadPoolExecutor and return the new instance."""
-
-    max_workers = getattr(litellm_thread_pool, "MAX_THREADS", None)
-    kwargs: Dict[str, Any] = {}
-    if isinstance(max_workers, int) and max_workers > 0:
-        kwargs["max_workers"] = max_workers
-
-    new_executor = ThreadPoolExecutor(**kwargs)
-    litellm_thread_pool.executor = new_executor
-    litellm_utils.executor = new_executor
-    logger.warning("LiteLLM executor reset; installed fresh thread pool")
-    return new_executor
-
-
-def _ensure_litellm_executor() -> Optional[ThreadPoolExecutor]:
-    """Ensure LiteLLM's executor is ready before submitting new futures."""
-
-    executor = getattr(litellm_utils, "executor", None)
-    if _executor_is_live(executor):
-        return executor
-
-    return _reset_litellm_executor()
-
-
-def _is_executor_shutdown_error(error: BaseException) -> bool:
-    """Detect the RuntimeError raised when a shutdown executor is reused."""
-
-    return isinstance(error, RuntimeError) and "cannot schedule new futures after shutdown" in str(error)
-
 # ---------- WebSearch ----------
 
 class WebSearchTool:
@@ -91,7 +43,7 @@ class WebSearchTool:
         self.max_snippet_length = max_snippet_length
         self.search_type = search_type
 
-    @trace_call("tool.web_search")
+    @trace_call("tool_web_search")
     @observe(name="tool_web_search", capture_input=True, capture_output=True)
     def __call__(self, query: str, count: int = 3, snippet_length: int = 2000) -> str:
         """Return up to `count` results with snippets trimmed to the requested length."""
@@ -126,30 +78,45 @@ class WebSearchTool:
         output = "\n\n".join(lines)
         return output
 
-class ParallelSearchTool:
-    """Run several tool invocations concurrently and return their outputs."""
+class ParallelToolCall:
+    """Run several tool invocations concurrently and return their outputs.
 
-    def __init__(self, tools: Dict[str, Any]) -> None:
+    Up to four calls execute in parallel threads. Example:
+
+        [
+            {"tool": "web_search", "args": {"query": "multi-agent"}},
+            {"tool": "filesystem_read", "args": {"path": "summary.md"}},
+        ]
+    """
+
+    def __init__(self, tools: Dict[str, Any], *, num_threads: int = 4) -> None:
         self.tools = tools
+        self._num_threads = num_threads
 
-    async def __call__(self, calls: list[dict]) -> list[str]:
-        """Calls must be dicts of the form {'tool_name': str, 'args': dict}."""
+    @trace_call("tool_parallel_tool_call")
+    @observe(name="tool_parallel_tool_call", capture_input=True, capture_output=True)
+    def __call__(self, calls: list[dict]) -> list[str]:
+        """Calls must be dicts of the form {'tool': str, 'args': dict}."""
+        if not calls:
+            return []
 
-        async def execute(call: dict) -> str:
-            name = call.get("tool_name")
-            args = call.get("args", {})
-            if name not in self.tools:
-                return f"Unknown tool: {name}"
+        parallel = dspy.Parallel(num_threads=self._num_threads, provide_traceback=True)
+        exec_pairs = [(self._invoke, (call,)) for call in calls]
+        results = parallel(exec_pairs)
+        return [str(result) for result in results]
 
-            tool = self.tools[name]
-            if asyncio.iscoroutinefunction(tool):
-                return await tool(**args)
+    def _invoke(self, call: dict) -> Any:
+        name = call.get("tool")
+        args = call.get("args", {})
+        tool = self.tools.get(name)
+        if tool is None:
+            return f"Unknown tool: {name}"
 
-            loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(None, functools.partial(tool, **args))
-
-        results = await asyncio.gather(*(execute(call) for call in calls), return_exceptions=True)
-        return [str(r) if isinstance(r, Exception) else r for r in results]
+        try:
+            return tool(**args)
+        except Exception as error:
+            logger.exception("Tool %s failed", name)
+            return f"Tool error ({name}): {error}"
 
 
 # ---------- FileSystem ----------
@@ -171,7 +138,7 @@ class FileSystemTool:
         except Exception:
             self._resolved_root = self.root
 
-    @trace_call("tool.filesystem_write")
+    @trace_call("tool_filesystem_write")
     @observe(name="tool_filesystem_write", capture_input=True, capture_output=True)
     def write(self, path: str, content: str) -> Path:
         file_path = self.root / path
@@ -179,7 +146,7 @@ class FileSystemTool:
         file_path.write_text(content)
         return file_path
 
-    @trace_call("tool.filesystem_read")
+    @trace_call("tool_filesystem_read")
     @observe(name="tool_filesystem_read", capture_input=True, capture_output=True)
     def read(self, path: str) -> str:
         file_path = self.root / path
@@ -190,7 +157,7 @@ class FileSystemTool:
     def exists(self, path: str) -> bool:
         return (self.root / path).exists()
 
-    @trace_call("tool.filesystem_tree")
+    @trace_call("tool_filesystem_tree")
     @observe(name="tool_filesystem_tree", capture_input=True, capture_output=True)
     def tree(self, max_depth: Optional[int] = 3) -> str:
         paths: List[str] = []
@@ -233,7 +200,7 @@ class TodoListTool:
     def __init__(self) -> None:
         self._todos: List[Todo] = []
 
-    @trace_call("tool.todo_write")
+    @trace_call("tool_todo_write")
     @observe(name="tool_todo_write", capture_input=True, capture_output=True)
     def write(self, todos: List[Todo]) -> str:
         """Replace the todo list with the given list[Todo] and return Json string"""
@@ -249,7 +216,7 @@ class TodoListTool:
         except Exception as e:
             return f"Error writing todos: {e}"
         
-    @trace_call("tool.todo_read")
+    @trace_call("tool_todo_read")
     @observe(name="tool_todo_read", capture_input=True, capture_output=True)
     def read(self) -> str:
         """Return the current todos as Json string"""
@@ -275,48 +242,30 @@ class SubagentTool(dspy.Module):
         self._lm = lm
         self._adapter = adapter
 
-    @trace_call("tool.subagent_forward")
-    @observe(name="tool_subagent_forward", capture_input=True, capture_output=True)
+    @trace_call("tool_subagent")
+    @observe(name="tool_subagent", capture_input=True, capture_output=True)
     def forward(self, task: SubagentTask) -> Optional[SubagentResult]:
         # Append the task prompt from the lead agent to the existing instructions
         current_instructions = ExecuteSubagentTask.instructions
         new_instructions = current_instructions + "\n" + task.prompt
         new_signature = ExecuteSubagentTask.with_instructions(instructions=new_instructions)
 
-        _ensure_litellm_executor()
-
         subagent = dspy.ReAct(new_signature, tools=self._tools, max_iters=task.tool_budget)
         subagent.lm = self._lm
         subagent.adapter = self._adapter
-
-        def _invoke_once() -> Any:
-            with dspy.context(lm=self._lm, adapter=self._adapter):
-                return subagent(task=task)
-
-        try:
-            prediction = _invoke_once()
-        except RuntimeError as exc:
-            if not _is_executor_shutdown_error(exc):
-                raise
-
-            logger.warning(
-                "LiteLLM executor shutdown detected for task '%s'; resetting and retrying once",
-                task.task_name,
-            )
-            _reset_litellm_executor()
-            prediction = _invoke_once()
+        
+        with dspy.context(lm=self._lm, adapter=self._adapter):
+            prediction = subagent(task=task)
 
         final = prediction.final_result
         final.task_name = task.task_name
         return final
 
-    @trace_call("tool.subagent_parallel_run")
+    @trace_call("tool_subagent_parallel_run")
     @observe(name="tool_subagent_parallel_run", capture_input=True, capture_output=True)
     def parallel_run(self, tasks: List[SubagentTask]) -> str:
         if not tasks:
             return json.dumps({"successes": [], "failures": []}, indent=2)
-
-        _ensure_litellm_executor()
 
         examples = [dspy.Example(task=task).with_inputs("task") for task in tasks]
 
