@@ -70,7 +70,7 @@ def test_web_search_tool_formats_results(monkeypatch):
     assert output == expected
     assert fake_client.api_key == "fake-key"
     assert fake_client.search.last_kwargs == {
-        "queries": ["test query"],
+        "query": "test query",
         "max_results": 5,
         "max_tokens_per_page": 1024,
     }

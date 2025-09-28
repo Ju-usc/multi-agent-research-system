@@ -42,7 +42,7 @@ class WebSearchTool:
     ) -> str:
         try:
             response = self.client.search.create(
-                queries=queries,
+                query=queries if len(queries) != 1 else queries[0],
                 max_results=max_results,
                 max_tokens_per_page=max_tokens_per_page,
             )
