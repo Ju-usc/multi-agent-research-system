@@ -5,6 +5,7 @@ Logging configuration is handled in logging_config.py to avoid side effects.
 """
 
 import os
+import json
 from dataclasses import dataclass
 from typing import Final
 
@@ -138,3 +139,29 @@ SMALL_MODEL_MAX_TOKENS = _DEFAULT_PRESET.small_max_tokens
 TEMPERATURE = 1.0
 # Max token limits are derived from the selected preset above.
 # Do not override them here; models like OpenRouter free tiers enforce 8–16k.
+
+# ========== COST CONFIGURATION ==========
+
+WEBSEARCH_COST_PER_CALL_USD = float(os.getenv("WEBSEARCH_COST_PER_CALL_USD", "0.005"))
+
+def _load_lm_costs() -> dict[str, float]:
+    raw = os.getenv("LM_COST_PER_1K_TOKENS_JSON")
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError):
+        return {}
+
+    if not isinstance(parsed, dict):
+        return {}
+
+    costs: dict[str, float] = {}
+    for key, value in parsed.items():
+        try:
+            costs[str(key)] = float(value)
+        except (TypeError, ValueError):
+            continue
+    return costs
+
+LM_COST_PER_1K_TOKENS = _load_lm_costs()

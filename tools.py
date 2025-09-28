@@ -31,6 +31,7 @@ class WebSearchTool:
             raise RuntimeError("PERPLEXITY_API_KEY must be set to use WebSearchTool")
 
         self.client = Perplexity(api_key=PERPLEXITY_API_KEY)
+        self.call_count = 0
 
     @trace_call("tool_web_search")
     @observe(name="tool_web_search", capture_input=True, capture_output=True)
@@ -40,6 +41,7 @@ class WebSearchTool:
         max_results: Optional[int] = 5,
         max_tokens_per_page: Optional[int] = 1024,
     ) -> str:
+        self.call_count += 1
         try:
             response = self.client.search.create(
                 query=queries if len(queries) != 1 else queries[0],

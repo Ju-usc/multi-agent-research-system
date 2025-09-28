@@ -4,11 +4,15 @@ BrowseComp Evaluation Module - Simplified
 Evaluates the existing multi-agent research system on BrowseComp dataset using DSPy evaluation framework.
 """
 
+import time
+from typing import Any, Callable, Dict, Optional
+
 import dspy
-import asyncio
-from typing import Optional, Dict, Any
+from dspy.teleprompt import GEPA
+
+from agent import Agent
+from config import LM_COST_PER_1K_TOKENS, WEBSEARCH_COST_PER_CALL_USD
 from dataset import BrowseCompDataset
-from workflow import LeadAgent
 
 
 class BrowseCompJudge(dspy.Signature):
@@ -29,26 +33,26 @@ class BrowseCompJudge(dspy.Signature):
     is_correct: bool = dspy.OutputField(desc="True if extracted answer matches correct answer, False otherwise")
 
 
-# Create a DSPy program wrapper for the async LeadAgent
+# Create a DSPy program wrapper for the async Agent
 class BrowseCompProgram(dspy.Module):
-    """DSPy program wrapper for LeadAgent to make it compatible with dspy.Evaluate."""
-    
-    def __init__(self, agent: LeadAgent):
-        super().__init__()
-        self.agent = agent
-    
-    def forward(self, problem: str) -> dspy.Prediction:
-        """Forward method required by DSPy - runs the agent and returns prediction.
+    """DSPy program wrapper for Agent to make it compatible with dspy.Evaluate."""
 
-        Prefers `aforward` if available; falls back to `run` for compatibility.
-        Uses synthesis text as the report to avoid network-dependent finalization.
-        """
-        if hasattr(self.agent, "aforward"):
-            result = asyncio.run(self.agent.aforward(problem))
-            return dspy.Prediction(report=result.get("synthesis", ""))
-        # Fallback for agents exposing a `run` method
-        report = asyncio.run(self.agent.run(problem))
-        return dspy.Prediction(report=report)
+    def __init__(self, agent_factory: Callable[[], Agent] | None = None):
+        super().__init__()
+        self._agent_factory = agent_factory or Agent
+
+    def forward(self, problem: str) -> dspy.Prediction:
+        agent = self._agent_factory()
+        agent.web_search_tool.call_count = 0
+
+        start = time.perf_counter()
+        agent_prediction = agent(problem)
+        elapsed = time.perf_counter() - start
+
+        agent_prediction.report = agent_prediction.answer
+        agent_prediction.elapsed_seconds = elapsed
+        agent_prediction.websearch_calls = agent.web_search_tool.call_count
+        return agent_prediction
 
 
 def browsecomp_metric(example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
@@ -77,10 +81,59 @@ def browsecomp_metric(example: dspy.Example, pred: dspy.Prediction, trace=None) 
         return 0.0
 
 
+def efficiency_accuracy_metric(example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
+    """Combined metric: accuracy divided by time and cost."""
+
+    judge = dspy.ChainOfThought(BrowseCompJudge)
+
+    try:
+        result = judge(
+            question=example.problem,
+            report=pred.report,
+            correct_answer=example.answer,
+        )
+        accuracy = 1.0 if result.is_correct else 0.0
+    except Exception as exc:
+        print(f"⚠️ Evaluation error: {exc}")
+        return 0.0
+
+    if accuracy == 0.0:
+        return 0.0
+
+    usage = pred.get_lm_usage() or {}
+    lm_cost = 0.0
+    for model, stats in usage.items():
+        tokens = stats.get("total_tokens")
+        if tokens is None:
+            tokens = (stats.get("prompt_tokens", 0) + stats.get("completion_tokens", 0))
+        lm_cost += (tokens / 1000.0) * LM_COST_PER_1K_TOKENS.get(model, 0.0)
+
+    web_cost = pred.websearch_calls * WEBSEARCH_COST_PER_CALL_USD
+    elapsed = pred.elapsed_seconds
+
+    total_cost = lm_cost + web_cost
+    epsilon = 1e-6
+    denom_time = max(epsilon, elapsed)
+    denom_cost = max(epsilon, total_cost)
+    score = accuracy / (denom_time * denom_cost)
+
+    pred.efficiency_breakdown = {
+        "accuracy": accuracy,
+        "elapsed_seconds": denom_time,
+        "lm_cost_usd": lm_cost,
+        "web_cost_usd": web_cost,
+        "total_cost_usd": total_cost,
+        "score": score,
+    }
+
+    return score
+
+
 def run_browsecomp_evaluation(
     num_examples: int = 20,
     num_threads: int = 4,
-    agent: Optional[LeadAgent] = None
+    agent_factory: Optional[Callable[[], Agent]] = None,
+    metric_type: str = "efficiency",
 ) -> Dict[str, Any]:
     """
     Run BrowseComp evaluation using DSPy's evaluation framework.
@@ -88,7 +141,8 @@ def run_browsecomp_evaluation(
     Args:
         num_examples: Number of examples to evaluate
         num_threads: Number of parallel threads
-        agent: LeadAgent instance (creates new one if None)
+        agent: Agent instance or factory (creates new one if None)
+        metric_type: "efficiency" or "accuracy"
         
     Returns:
         Evaluation results dictionary
@@ -102,18 +156,29 @@ def run_browsecomp_evaluation(
     print(f"✅ Loaded {len(examples)} examples")
     
     # Initialize agent if not provided
-    if agent is None:
-        print("🤖 Initializing LeadAgent...")
-        agent = LeadAgent()
+    if agent_factory is None:
+        print("🤖 Initializing Agent factory...")
+        agent_factory = Agent
     
     # Create DSPy program wrapper
-    program = BrowseCompProgram(agent)
+    program = BrowseCompProgram(agent_factory)
+
+    metric_type_normalized = (metric_type or "efficiency").lower()
+    metric_fn = {
+        "accuracy": browsecomp_metric,
+        "efficiency": efficiency_accuracy_metric,
+    }.get(metric_type_normalized)
+
+    if metric_fn is None:
+        raise ValueError(f"Unknown metric_type '{metric_type}'. Valid options: efficiency, accuracy")
+
+    dspy.settings.configure(track_usage=True)
     
     # Create DSPy evaluator
     print(f"⚙️ Setting up evaluation with {num_threads} threads...")
     evaluator = dspy.Evaluate(
         devset=examples,
-        metric=browsecomp_metric,
+        metric=metric_fn,
         num_threads=num_threads,
         display_progress=True,
         display_table=5,
@@ -129,13 +194,31 @@ def run_browsecomp_evaluation(
     details = [None] * len(examples)
 
     print(f"\n📊 EVALUATION COMPLETE")
-    print(f"✅ Accuracy: {score:.1f}%")
+    metric_label = "Accuracy" if metric_fn is browsecomp_metric else "Efficiency Score"
+    print(f"✅ {metric_label}: {score:.4f}")
 
     return {
-        "accuracy": score,
+        "metric": score,
+        "metric_type": metric_type_normalized,
         "num_examples": len(examples),
         "results": details,
     }
+
+
+def optimize_browsecomp_with_gepa(
+    train_examples: list[dspy.Example],
+    agent_factory: Optional[Callable[[], Agent]] = None,
+    steps: int = 20,
+    metric: Callable[[dspy.Example, dspy.Prediction, Any], float] = efficiency_accuracy_metric,
+):
+    """Optimize agent prompts on BrowseComp using DSPy's GEPA optimizer."""
+
+    program = BrowseCompProgram(agent_factory)
+
+    dspy.settings.configure(track_usage=True)
+
+    optimizer = GEPA(metric=metric, steps=steps)
+    return optimizer.compile(student=program, trainset=train_examples)
 
 
 if __name__ == "__main__":
@@ -144,8 +227,8 @@ if __name__ == "__main__":
     print("=" * 50)
     
     # Run evaluation
-    results = run_browsecomp_evaluation(num_examples=5, num_threads=2)
+    results = run_browsecomp_evaluation(num_examples=5, num_threads=2, metric_type="efficiency")
     
     print(f"\nFinal Results:")
-    print(f"📈 Accuracy: {results['accuracy']:.1f}%")
+    print(f"📈 Metric ({results['metric_type']}): {results['metric']:.4f}")
     print(f"📊 Examples: {results['num_examples']}")

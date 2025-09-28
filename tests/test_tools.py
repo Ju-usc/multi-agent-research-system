@@ -76,6 +76,28 @@ def test_web_search_tool_formats_results(monkeypatch):
     }
 
 
+def test_web_search_tool_call_count(monkeypatch):
+    class _FakeSearch:
+        def create(self, **_):
+            return SimpleNamespace(results=[])
+
+    class _FakePerplexity:
+        def __init__(self, api_key: str | None = None) -> None:
+            self.api_key = api_key
+            self.search = _FakeSearch()
+
+    monkeypatch.setattr(tools, "PERPLEXITY_API_KEY", "fake-key")
+    monkeypatch.setattr(tools, "Perplexity", lambda api_key=None: _FakePerplexity(api_key))
+
+    tool = tools.WebSearchTool()
+
+    assert tool.call_count == 0
+    tool(["first"])
+    tool(["second"])
+
+    assert tool.call_count == 2
+
+
 class _FakeParallel:
     last_num_threads = None
 
