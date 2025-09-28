@@ -1508,6 +1508,7 @@ dependencies = [
     { name = "openai" },
     { name = "openinference-instrumentation-dspy" },
     { name = "pandas" },
+    { name = "perplexityai" },
     { name = "pydantic" },
     { name = "pytest" },
 ]
@@ -1528,6 +1529,7 @@ requires-dist = [
     { name = "openai" },
     { name = "openinference-instrumentation-dspy" },
     { name = "pandas" },
+    { name = "perplexityai" },
     { name = "pydantic" },
     { name = "pytest" },
 ]
@@ -2111,6 +2113,23 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/66/94/68e2e17afaa9169cf6412ab0f28623903be73d1b32e208d9e8e541bb086d/parso-0.8.4.tar.gz", hash = "sha256:eb3a7b58240fb99099a345571deecc0f9540ea5f4dd2fe14c2a99d6b281ab92d", size = 400609 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c6/ac/dac4a63f978e4dcb3c6d3a78c4d8e0192a113d288502a1216950c41b1027/parso-0.8.4-py2.py3-none-any.whl", hash = "sha256:a418670a20291dacd2dddc80c377c5c3791378ee1e8d12bffc35420643d43f18", size = 103650 },
+]
+
+[[package]]
+name = "perplexityai"
+version = "0.11.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "distro" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "sniffio" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/24/11/c7a7ae31ba7bc6343081db60b204d300dd340614cd292073815479fb545a/perplexityai-0.11.0.tar.gz", hash = "sha256:30fcbab633d9d5470cd720265aa3d5a9551323f24d670dcdad7a296935c2e561", size = 108132 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c4/8d/6e8bbf2e9e066d4fedd8d15756839770d804061f310e9e74022ec40ccfe5/perplexityai-0.11.0-py3-none-any.whl", hash = "sha256:7de7af3adbd41090fe2b82f0db9934c2465e42ba76a329b2ea03f9f19a05c70e", size = 96446 },
 ]
 
 [[package]]

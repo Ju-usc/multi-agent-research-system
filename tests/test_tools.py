@@ -9,51 +9,71 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import tools
 
 
-class _FakeExa:
-    def __init__(self, key: str) -> None:
-        self.key = key
-
-    def search_and_contents(self, query: str, **kwargs):
-        assert query == "Test query"
-        assert kwargs["num_results"] == 2
-        assert kwargs["type"] == "auto"
-        assert kwargs["text"] is True
-        return SimpleNamespace(
-            results=[
-                SimpleNamespace(
-                    title="Document One",
-                    summary="Concise summary",
-                    text="Full body of the first document.",
-                    url="https://one.example",
-                ),
-                SimpleNamespace(
-                    title=None,
-                    summary="",
-                    text="Full body of the second document.",
-                    highlights=["Notable highlight from the second document."],
-                    url="https://two.example",
-                ),
-            ]
-        )
-
-
 def test_web_search_tool_formats_results(monkeypatch):
-    monkeypatch.setattr(tools, "Exa", _FakeExa)
+    class _FakeSearch:
+        def __init__(self):
+            self.last_kwargs = None
 
-    tool = tools.WebSearchTool(api_key="fake-key", max_results=5)
+        def create(self, **kwargs):
+            self.last_kwargs = kwargs
+            return SimpleNamespace(
+                results=[
+                    SimpleNamespace(
+                        title="Result One",
+                        snippet="Snippet One",
+                        url="https://one.example",
+                        date="2024-01-01",
+                        last_updated="2024-01-02",
+                    ),
+                    SimpleNamespace(
+                        title="Result Two",
+                        snippet="Snippet Two",
+                        url="https://two.example",
+                        date="2024-01-03",
+                        last_updated="2024-01-04",
+                    ),
+                ]
+            )
 
-    output = tool("  Test query  ", count=2, snippet_length=30)
+    class _FakePerplexity:
+        def __init__(self, api_key: str | None = None) -> None:
+            self.api_key = api_key
+            self.search = _FakeSearch()
+
+    fake_client = _FakePerplexity()
+
+    monkeypatch.setattr(tools, "PERPLEXITY_API_KEY", "fake-key")
+
+    def _factory(api_key=None):
+        fake_client.api_key = api_key
+        return fake_client
+
+    monkeypatch.setattr(tools, "Perplexity", _factory)
+
+    tool = tools.WebSearchTool()
+
+    output = tool(["test query"])
 
     expected = (
-        "1. Document One\n"
-        "Concise summary\n"
-        "https://one.example\n\n"
-        "2. Untitled\n"
-        "Full body of the second document.\n"
-        "https://two.example"
+        "1. Result One\n"
+        "Snippet One\n"
+        "https://one.example\n"
+        "2024-01-01\n"
+        "2024-01-02\n\n"
+        "2. Result Two\n"
+        "Snippet Two\n"
+        "https://two.example\n"
+        "2024-01-03\n"
+        "2024-01-04"
     )
 
     assert output == expected
+    assert fake_client.api_key == "fake-key"
+    assert fake_client.search.last_kwargs == {
+        "query": "test query",
+        "max_results": 5,
+        "max_tokens_per_page": 1024,
+    }
 
 
 class _FakeParallel:

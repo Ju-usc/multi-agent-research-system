@@ -8,9 +8,9 @@ from typing import Dict, List, Any, Optional
 import json
 import dspy
 from pathlib import Path
-from exa_py import Exa
+from perplexity import Perplexity
 from langfuse import observe
-from config import EXA_API_KEY
+from config import PERPLEXITY_API_KEY
 from logging_config import trace_call
 from models import (
     Todo,
@@ -24,59 +24,42 @@ logger = logging.getLogger(__name__)
 # ---------- WebSearch ----------
 
 class WebSearchTool:
-    """Call Exa's search API and format the hits as a markdown list."""
+    """Perplexity search supporting up to 5 queries (max 20 results)."""
 
-    def __init__(
-        self,
-        api_key: Optional[str] = None,
-        *,
-        max_results: int = 10,
-        max_snippet_length: int = 10_000,
-        search_type: str = "auto",
-    ) -> None:
-        key = api_key or EXA_API_KEY
-        if not key:
-            raise ValueError("EXA_API_KEY is required to initialize WebSearchTool")
+    def __init__(self) -> None:
+        if not PERPLEXITY_API_KEY:
+            raise RuntimeError("PERPLEXITY_API_KEY must be set to use WebSearchTool")
 
-        self.client = Exa(key)
-        self.max_results = max(1, max_results)
-        self.max_snippet_length = max_snippet_length
-        self.search_type = search_type
+        self.client = Perplexity(api_key=PERPLEXITY_API_KEY)
 
     @trace_call("tool_web_search")
     @observe(name="tool_web_search", capture_input=True, capture_output=True)
-    def __call__(self, query: str, count: int = 3, snippet_length: int = 2000) -> str:
-        """Return up to `count` results with snippets trimmed to the requested length."""
-        query = query.strip()
-        if not query:
-            return "# Search Error\n\nQuery cannot be empty."
-
-        num_results = max(1, min(count, self.max_results))
-        snippet_length = max(100, min(snippet_length, self.max_snippet_length))
-
-        kwargs: Dict[str, Any] = {
-            "num_results": num_results,
-            "type": self.search_type,
-            "text": True,
-        }
-
+    def __call__(
+        self,
+        queries: List[str],
+        max_results: Optional[int] = 5,
+        max_tokens_per_page: Optional[int] = 1024,
+    ) -> str:
         try:
-            response = self.client.search_and_contents(
-                query,
-                **kwargs,
+            response = self.client.search.create(
+                query=queries if len(queries) != 1 else queries[0],
+                max_results=max_results,
+                max_tokens_per_page=max_tokens_per_page,
             )
+            results = response.results
         except Exception as exc:
-            return f"# Search Error\n\nError searching for '{query}': {exc}"
+            return f"Error searching for '{queries}': {exc}"
 
-        if not response.results:
-            return f"No results found for '{query}'"
         lines: List[str] = []
-        for idx, item in enumerate(response.results, 1):
-            title = item.title or "Untitled"
-            context = (item.summary or item.text or "").strip()[:snippet_length]
-            lines.append(f"{idx}. {title}\n{context}\n{item.url}")
-        output = "\n\n".join(lines)
-        return output
+        for idx, result in enumerate(results, 1):
+            title = result.title
+            snippet = result.snippet
+            url = result.url
+            date = result.date
+            last_updated = result.last_updated
+            lines.append(f"{idx}. {title}\n{snippet}\n{url}\n{date}\n{last_updated}")
+
+        return "\n\n".join(lines)
 
 class ParallelToolCall:
     """Run several tool invocations concurrently and return their outputs.

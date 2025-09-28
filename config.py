@@ -11,7 +11,7 @@ from typing import Final
 from dotenv import load_dotenv
 
 # Load environment variables
-load_dotenv()
+load_dotenv(override=True)
 
 # ========== API KEYS ==========
 BRAVE_SEARCH_API_KEY = os.getenv("BRAVE_SEARCH_API_KEY")
@@ -19,6 +19,7 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 EXA_API_KEY = os.getenv("EXA_API_KEY")
+PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
 
 # ========== MODEL CONFIGURATION ==========
 
