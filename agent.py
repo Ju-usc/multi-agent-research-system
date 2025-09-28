@@ -5,7 +5,6 @@ import dspy
 from dspy.adapters.chat_adapter import ChatAdapter
 
 from config import (
-    EXA_API_KEY,
     MODEL_PRESETS,
     BIG_MODEL,
     SMALL_MODEL,
@@ -49,7 +48,7 @@ class Agent(dspy.Module):
         super().__init__()
         # Shared adapter for structured outputs
         # Core tools
-        self.web_search_tool = WebSearchTool(EXA_API_KEY)
+        self.web_search_tool = WebSearchTool()
         self.fs_tool = FileSystemTool()
         self.todo_list_tool = TodoListTool()
         self.fs = self.fs_tool  # provide backward-compatible alias
