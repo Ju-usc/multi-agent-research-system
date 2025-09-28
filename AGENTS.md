@@ -158,6 +158,8 @@ The example stores the run at `logs/trace-ai-collab.log`. Pre-create directories
 * No secrets in code/logs; limits respected.
 * Interfaces unchanged or documented; update @architecture-\*.md if contracts changed.
 * Logs are structured and concise.
+* Commits must not include `Co-authored-by` lines.
+* Do not add AI or agent attribution to commit messages.
 
 ---
 
