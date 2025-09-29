@@ -261,12 +261,25 @@ class SubagentTool(dspy.Module):
             provide_traceback=True,
         )
 
+        successes: list[dict[str, Any]] = []
+        degraded_failures: list[dict[str, str]] = []
+
+        for example_obj, output in zip(examples, results):
+            task_name = example_obj.task.task_name if hasattr(example_obj, "task") else "unknown"
+            if output is None or not hasattr(output, "model_dump"):
+                degraded_failures.append({"task_name": task_name, "error": "Subagent returned no result"})
+                continue
+            successes.append(output.model_dump())
+
         summary = {
-            "successes": [res.model_dump() for res in results],
+            "successes": successes,
             "failures": [
                 {"task_name": ex.task.task_name, "error": str(err)}
                 for ex, err in zip(failed_examples, exceptions)
             ],
         }
+
+        if degraded_failures:
+            summary["failures"].extend(degraded_failures)
 
         return json.dumps(summary, indent=2)

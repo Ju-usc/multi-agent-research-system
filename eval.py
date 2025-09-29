@@ -8,11 +8,20 @@ import time
 from typing import Any, Callable, Dict, Optional
 
 import dspy
+from dspy.adapters.chat_adapter import ChatAdapter
 from dspy.teleprompt import GEPA
 
 from agent import Agent
-from config import LM_COST_PER_1K_TOKENS, WEBSEARCH_COST_PER_CALL_USD
+from config import (
+    LM_COST_PER_1K_TOKENS,
+    WEBSEARCH_COST_PER_CALL_USD,
+    TEMPERATURE,
+    lm_kwargs_for,
+    resolve_model_config,
+)
 from dataset import BrowseCompDataset
+from logging_config import configure_logging
+from utils import create_model_cli_parser, iter_model_presets
 
 
 class BrowseCompJudge(dspy.Signature):
@@ -53,6 +62,36 @@ class BrowseCompProgram(dspy.Module):
         agent_prediction.elapsed_seconds = elapsed
         agent_prediction.websearch_calls = agent.web_search_tool.call_count
         return agent_prediction
+
+
+def _ensure_lm_configured(
+    preset: Optional[str] = None,
+    big_override: Optional[str] = None,
+    small_override: Optional[str] = None,
+
+) -> Any:
+    """Ensure a global LM is registered with DSPy before evaluation runs.
+
+    Returns the resolved model configuration.
+    """
+
+    if dspy.settings.lm is not None:
+        # Return a config matching the current settings where possible
+        return resolve_model_config(preset, big_override, small_override)
+
+    config = resolve_model_config(preset, big_override, small_override)
+
+    dspy.configure(
+        lm=dspy.LM(
+            model=config.big,
+            temperature=TEMPERATURE,
+            max_tokens=config.big_max_tokens,
+            **lm_kwargs_for(config.big),
+        ),
+        adapter=ChatAdapter(),
+    )
+
+    return config
 
 
 def browsecomp_metric(example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
@@ -134,6 +173,9 @@ def run_browsecomp_evaluation(
     num_threads: int = 4,
     agent_factory: Optional[Callable[[], Agent]] = None,
     metric_type: str = "efficiency",
+    model_preset: Optional[str] = None,
+    model_big: Optional[str] = None,
+    model_small: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Run BrowseComp evaluation using DSPy's evaluation framework.
@@ -155,10 +197,19 @@ def run_browsecomp_evaluation(
     examples = dataset.load()
     print(f"✅ Loaded {len(examples)} examples")
     
+    # Ensure an LM is configured (respect overrides when provided)
+    config = _ensure_lm_configured(model_preset, model_big, model_small)
+
     # Initialize agent if not provided
     if agent_factory is None:
         print("🤖 Initializing Agent factory...")
-        agent_factory = Agent
+        agent_factory = lambda: Agent(
+            big_model=config.big,
+            small_model=config.small,
+            temperature=TEMPERATURE,
+            big_max_tokens=config.big_max_tokens,
+            small_max_tokens=config.small_max_tokens,
+        )
     
     # Create DSPy program wrapper
     program = BrowseCompProgram(agent_factory)
@@ -221,14 +272,49 @@ def optimize_browsecomp_with_gepa(
     return optimizer.compile(student=program, trainset=train_examples)
 
 
-if __name__ == "__main__":
-    # Example usage
-    print("🔍 BrowseComp Evaluation Example")
+def _parse_args():
+    parser = create_model_cli_parser(
+        "Run BrowseComp evaluation",
+        include_list=True,
+    )
+    parser.add_argument("--num-examples", type=int, default=5, help="Number of dataset examples")
+    parser.add_argument("--num-threads", type=int, default=2, help="Parallel evaluation threads")
+    parser.add_argument(
+        "--metric",
+        choices=["efficiency", "accuracy"],
+        default="efficiency",
+        help="Metric to use during evaluation",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = _parse_args()
+
+    if getattr(args, "list_models", False):
+        print("Available presets:")
+        for name, preset in iter_model_presets():
+            print(f"- {name}: big={preset.big}, small={preset.small}")
+        return
+
+    configure_logging()
+
+    print("🔍 BrowseComp Evaluation")
     print("=" * 50)
-    
-    # Run evaluation
-    results = run_browsecomp_evaluation(num_examples=5, num_threads=2, metric_type="efficiency")
-    
-    print(f"\nFinal Results:")
+
+    results = run_browsecomp_evaluation(
+        num_examples=args.num_examples,
+        num_threads=args.num_threads,
+        metric_type=args.metric,
+        model_preset=args.model,
+        model_big=args.model_big,
+        model_small=args.model_small,
+    )
+
+    print("\nFinal Results:")
     print(f"📈 Metric ({results['metric_type']}): {results['metric']:.4f}")
     print(f"📊 Examples: {results['num_examples']}")
+
+
+if __name__ == "__main__":
+    main()

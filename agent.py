@@ -1,4 +1,3 @@
-import argparse
 import logging
 
 import dspy
@@ -16,7 +15,7 @@ from config import (
 )
 from tools import WebSearchTool, FileSystemTool, TodoListTool, SubagentTool, ParallelToolCall
 from logging_config import trace_call, configure_logging
-from utils import setup_langfuse
+from utils import create_model_cli_parser, setup_langfuse
 from langfuse import observe
 
 
@@ -148,19 +147,13 @@ class Agent(dspy.Module):
     def forward(self, query: str) -> dspy.Prediction:
         return self.lead_agent(query=query)
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the single-loop research agent.")
-    parser.add_argument(
-        "--model",
-        choices=sorted(MODEL_PRESETS.keys()),
-        help="Model preset to use for both big and small slots.",
-    )
-    parser.add_argument("--model-big", dest="model_big", help="Override the big model identifier.")
-    parser.add_argument("--model-small", dest="model_small", help="Override the small model identifier.")
-    parser.add_argument(
-        "--query",
-        default="Lamine vs Doue? Be objective and keep it research short and concise DO NOT ASK ANYTHING ELSE. Try to use tools provided to you to test our system first. Yet there will be no memory artifacts as this is the first session.",
-        help="Query to run through the agent.",
+def parse_args():
+    parser = create_model_cli_parser(
+        "Run the single-loop research agent.",
+        query=(
+            "Lamine vs Doue? Be objective and keep it research short and concise DO NOT ASK ANYTHING ELSE. Try to use tools provided to you to test our system first. Yet there will be no memory artifacts as this is the first session.",
+            "Query to run through the agent.",
+        ),
     )
     return parser.parse_args()
 

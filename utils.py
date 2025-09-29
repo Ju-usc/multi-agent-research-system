@@ -2,13 +2,16 @@
 Utility functions for the multi-agent research system
 """
 
+import argparse
 import os
 import json
 import logging
 from functools import wraps
-from typing import Any
+from typing import Any, Iterable, Tuple
+
 from dotenv import load_dotenv
-from pydantic import BaseModel
+
+from config import MODEL_PRESETS
 
 
 def setup_langfuse():
@@ -164,3 +167,43 @@ def log_call(func):
         return result
 
     return wrapper
+
+
+def create_model_cli_parser(
+    description: str,
+    *,
+    include_list: bool = False,
+    query: Tuple[str, str] | None = None,
+) -> argparse.ArgumentParser:
+    """Return an ArgumentParser with shared model arguments.
+
+    Args:
+        description: CLI description string.
+        include_list: add ``--list-models`` when True.
+        query: optional tuple of (default, help) to add ``--query``.
+    """
+
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument(
+        "--model",
+        choices=sorted(MODEL_PRESETS.keys()),
+        help="Model preset to use for both big and small slots.",
+    )
+    parser.add_argument("--model-big", dest="model_big", help="Override the big model identifier.")
+    parser.add_argument("--model-small", dest="model_small", help="Override the small model identifier.")
+    if include_list:
+        parser.add_argument(
+            "--list-models",
+            action="store_true",
+            help="List available model presets and exit.",
+        )
+    if query is not None:
+        default, help_text = query
+        parser.add_argument("--query", default=default, help=help_text)
+    return parser
+
+
+def iter_model_presets() -> Iterable[tuple[str, Any]]:
+    """Yield model presets sorted by key."""
+
+    return sorted(MODEL_PRESETS.items())
