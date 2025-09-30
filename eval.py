@@ -1,11 +1,11 @@
 """
-BrowseComp Evaluation Module - Simplified
+BrowseComp Evaluation Module
 
-Evaluates the existing multi-agent research system on BrowseComp dataset using DSPy evaluation framework.
+Evaluates the multi-agent research system on BrowseComp using DSPy's built-in evaluation framework.
 """
 
 import time
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Optional
 
 import dspy
 from dspy.adapters.chat_adapter import ChatAdapter
@@ -63,37 +63,6 @@ class BrowseCompProgram(dspy.Module):
         agent_prediction.websearch_calls = agent.web_search_tool.call_count
         return agent_prediction
 
-
-def _ensure_lm_configured(
-    preset: Optional[str] = None,
-    big_override: Optional[str] = None,
-    small_override: Optional[str] = None,
-
-) -> Any:
-    """Ensure a global LM is registered with DSPy before evaluation runs.
-
-    Returns the resolved model configuration.
-    """
-
-    if dspy.settings.lm is not None:
-        # Return a config matching the current settings where possible
-        return resolve_model_config(preset, big_override, small_override)
-
-    config = resolve_model_config(preset, big_override, small_override)
-
-    dspy.configure(
-        lm=dspy.LM(
-            model=config.big,
-            temperature=TEMPERATURE,
-            max_tokens=config.big_max_tokens,
-            **lm_kwargs_for(config.big),
-        ),
-        adapter=ChatAdapter(),
-    )
-
-    return config
-
-
 def browsecomp_metric(example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
     """
     DSPy metric function for BrowseComp evaluation.
@@ -136,9 +105,6 @@ def efficiency_accuracy_metric(example: dspy.Example, pred: dspy.Prediction, tra
         print(f"⚠️ Evaluation error: {exc}")
         return 0.0
 
-    if accuracy == 0.0:
-        return 0.0
-
     usage = pred.get_lm_usage() or {}
     lm_cost = 0.0
     for model, stats in usage.items():
@@ -154,7 +120,7 @@ def efficiency_accuracy_metric(example: dspy.Example, pred: dspy.Prediction, tra
     epsilon = 1e-6
     denom_time = max(epsilon, elapsed)
     denom_cost = max(epsilon, total_cost)
-    score = accuracy / (denom_time * denom_cost)
+    score = accuracy / (denom_time * denom_cost) if accuracy > 0 else 0.0
 
     pred.efficiency_breakdown = {
         "accuracy": accuracy,
@@ -166,111 +132,6 @@ def efficiency_accuracy_metric(example: dspy.Example, pred: dspy.Prediction, tra
     }
 
     return score
-
-
-def run_browsecomp_evaluation(
-    num_examples: int = 20,
-    num_threads: int = 4,
-    agent_factory: Optional[Callable[[], Agent]] = None,
-    metric_type: str = "efficiency",
-    model_preset: Optional[str] = None,
-    model_big: Optional[str] = None,
-    model_small: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-    Run BrowseComp evaluation using DSPy's evaluation framework.
-    
-    Args:
-        num_examples: Number of examples to evaluate
-        num_threads: Number of parallel threads
-        agent: Agent instance or factory (creates new one if None)
-        metric_type: "efficiency" or "accuracy"
-        
-    Returns:
-        Evaluation results dictionary
-    """
-    print(f"🎯 Starting BrowseComp Evaluation ({num_examples} examples)")
-    
-    # Load dataset
-    print("📚 Loading BrowseComp dataset...")
-    dataset = BrowseCompDataset(num_examples=num_examples)
-    examples = dataset.load()
-    print(f"✅ Loaded {len(examples)} examples")
-    
-    # Ensure an LM is configured (respect overrides when provided)
-    config = _ensure_lm_configured(model_preset, model_big, model_small)
-
-    # Initialize agent if not provided
-    if agent_factory is None:
-        print("🤖 Initializing Agent factory...")
-        agent_factory = lambda: Agent(
-            big_model=config.big,
-            small_model=config.small,
-            temperature=TEMPERATURE,
-            big_max_tokens=config.big_max_tokens,
-            small_max_tokens=config.small_max_tokens,
-        )
-    
-    # Create DSPy program wrapper
-    program = BrowseCompProgram(agent_factory)
-
-    metric_type_normalized = (metric_type or "efficiency").lower()
-    metric_fn = {
-        "accuracy": browsecomp_metric,
-        "efficiency": efficiency_accuracy_metric,
-    }.get(metric_type_normalized)
-
-    if metric_fn is None:
-        raise ValueError(f"Unknown metric_type '{metric_type}'. Valid options: efficiency, accuracy")
-
-    dspy.settings.configure(track_usage=True)
-    
-    # Create DSPy evaluator
-    print(f"⚙️ Setting up evaluation with {num_threads} threads...")
-    evaluator = dspy.Evaluate(
-        devset=examples,
-        metric=metric_fn,
-        num_threads=num_threads,
-        display_progress=True,
-        display_table=5,
-        max_errors=10
-    )
-    
-    # Run evaluation
-    print("🚀 Starting evaluation...")
-    result = evaluator(program)
-
-    # Normalize to a single return shape: float accuracy and a results list sized to the dataset
-    score = float(result)
-    details = [None] * len(examples)
-
-    print(f"\n📊 EVALUATION COMPLETE")
-    metric_label = "Accuracy" if metric_fn is browsecomp_metric else "Efficiency Score"
-    print(f"✅ {metric_label}: {score:.4f}")
-
-    return {
-        "metric": score,
-        "metric_type": metric_type_normalized,
-        "num_examples": len(examples),
-        "results": details,
-    }
-
-
-def optimize_browsecomp_with_gepa(
-    train_examples: list[dspy.Example],
-    agent_factory: Optional[Callable[[], Agent]] = None,
-    steps: int = 20,
-    metric: Callable[[dspy.Example, dspy.Prediction, Any], float] = efficiency_accuracy_metric,
-):
-    """Optimize agent prompts on BrowseComp using DSPy's GEPA optimizer."""
-
-    program = BrowseCompProgram(agent_factory)
-
-    dspy.settings.configure(track_usage=True)
-
-    optimizer = GEPA(metric=metric, steps=steps)
-    return optimizer.compile(student=program, trainset=train_examples)
-
 
 def _parse_args():
     parser = create_model_cli_parser(
@@ -284,6 +145,28 @@ def _parse_args():
         choices=["efficiency", "accuracy"],
         default="efficiency",
         help="Metric to use during evaluation",
+    )
+    parser.add_argument(
+        "--optimize",
+        action="store_true",
+        help="Run GEPA optimization before evaluation",
+    )
+    parser.add_argument(
+        "--optimize-steps",
+        type=int,
+        default=10,
+        help="Number of GEPA optimization steps (default: 10)",
+    )
+    parser.add_argument(
+        "--train-size",
+        type=float,
+        default=0.7,
+        help="Train/test split ratio for GEPA optimization (default: 0.7)",
+    )
+    parser.add_argument(
+        "--save-metrics",
+        type=str,
+        help="Save detailed metrics to JSON file (e.g., results.json)",
     )
     return parser.parse_args()
 
@@ -302,18 +185,78 @@ def main() -> None:
     print("🔍 BrowseComp Evaluation")
     print("=" * 50)
 
-    results = run_browsecomp_evaluation(
-        num_examples=args.num_examples,
-        num_threads=args.num_threads,
-        metric_type=args.metric,
-        model_preset=args.model,
-        model_big=args.model_big,
-        model_small=args.model_small,
+    # Configure DSPy and prepare agent
+    config = resolve_model_config(args.model, args.model_big, args.model_small)
+    
+    if dspy.settings.lm is None:
+        dspy.configure(
+            lm=dspy.LM(
+                model=config.big,
+                temperature=TEMPERATURE,
+                max_tokens=config.big_max_tokens,
+                **lm_kwargs_for(config.big),
+            ),
+            adapter=ChatAdapter(),
+        )
+    
+    dspy.settings.configure(track_usage=True)
+    
+    agent_factory = lambda: Agent(
+        big_model=config.big,
+        small_model=config.small,
+        temperature=TEMPERATURE,
+        big_max_tokens=config.big_max_tokens,
+        small_max_tokens=config.small_max_tokens,
     )
+    
+    metric_fn = efficiency_accuracy_metric if args.metric == "efficiency" else browsecomp_metric
+    
+    # Load dataset
+    dataset = BrowseCompDataset(num_examples=args.num_examples)
+    examples = dataset.load()
+    print(f"📚 Loaded {len(examples)} examples")
 
-    print("\nFinal Results:")
-    print(f"📈 Metric ({results['metric_type']}): {results['metric']:.4f}")
-    print(f"📊 Examples: {results['num_examples']}")
+    # GEPA optimization if requested
+    if args.optimize:
+        print(f"\n🧬 GEPA Optimization ({args.optimize_steps} steps)")
+        split_idx = int(len(examples) * args.train_size)
+        train, test = examples[:split_idx], examples[split_idx:]
+        print(f"📊 Split: {len(train)} train, {len(test)} test")
+        
+        program = BrowseCompProgram(agent_factory)
+        optimizer = GEPA(metric=metric_fn, steps=args.optimize_steps)
+        optimized = optimizer.compile(student=program, trainset=train)
+        
+        print(f"\n✨ Optimization complete!")
+        print(f"📝 Optimized {len(list(optimized.named_predictors()))} predictor(s)")
+        for name, pred in optimized.named_predictors():
+            instr = getattr(pred.signature, 'instructions', '<no instructions>')
+            print(f"  • {name}: {instr[:80]}..." if len(instr) > 80 else f"  • {name}: {instr}")
+        
+        program = optimized
+        examples = test  # Evaluate on test set
+    else:
+        program = BrowseCompProgram(agent_factory)
+
+    # Run evaluation with built-in save
+    print(f"🚀 Evaluating...")
+    evaluator = dspy.Evaluate(
+        devset=examples,
+        metric=metric_fn,
+        num_threads=args.num_threads,
+        display_progress=True,
+        display_table=5,
+        max_errors=10,
+        save_as_json=args.save_metrics if args.save_metrics else None,
+    )
+    
+    result = evaluator(program)
+
+    print("\n" + "=" * 50)
+    print(f"📈 {args.metric.title()} Score: {result.score:.4f}")
+    print(f"📊 Examples: {len(examples)}")
+    if args.optimize:
+        print(f"🧬 Optimized with GEPA ({args.optimize_steps} steps)")
 
 
 if __name__ == "__main__":

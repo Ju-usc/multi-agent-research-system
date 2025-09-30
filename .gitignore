@@ -18,6 +18,7 @@ memory/
 .vscode/
 .codex/
 .cursor/
+.factory/
 
 docs/
 

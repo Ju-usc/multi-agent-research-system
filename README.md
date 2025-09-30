@@ -52,6 +52,36 @@ TRACE_LOG_FILENAME=trace-ai-collab.log LOG_LEVEL=DEBUG \
 
 The example above writes `logs/trace-ai-collab.log`. Create directories ahead of time if you specify a path.
 
+## Evaluation
+
+Run BrowseComp evaluation with efficiency metrics and GEPA optimization.
+
+```bash
+# Basic evaluation
+uv run python eval.py
+
+# Custom settings
+uv run python eval.py --num-examples 20 --metric accuracy
+
+# GEPA optimization (auto train/test split)
+uv run python eval.py --optimize --optimize-steps 10
+
+# Save results
+uv run python eval.py --save-metrics results.json
+```
+
+**Metrics:**
+- `accuracy`: Binary correctness (1.0 or 0.0)
+- `efficiency`: accuracy / (time × cost) - default
+
+**Cost config** (`.env`):
+```bash
+WEBSEARCH_COST_PER_CALL_USD=0.005
+LM_COST_PER_1K_TOKENS_JSON='{"openai/gpt-4o": 0.005}'
+```
+
+See `.env.template` for full example.
+
 ## License
 
 MIT
