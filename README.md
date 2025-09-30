@@ -25,6 +25,20 @@ A minimal multi-agent research system, built with DSPy, inspired by [Anthropic�
 3. Subagents use **web_search** and may `fs_write_report(...)`; each returns a **summary**.  
 4. Lead **reads artifacts**, updates the To-Do, and **synthesizes** the answer; iterate if gaps remain.
 
+## Evaluation philosophy
+
+The default `efficiency` metric drives **lean correctness** — right answers with minimal waste:
+
+```
+efficiency = accuracy / (time × cost)
+```
+
+This penalizes over-search (20 queries vs 5), over-decomposition (10 subagents vs 3), and slow synthesis. Wrong answers score zero regardless of speed.
+
+**GEPA optimization** discovers prompts that maximize efficiency. Patterns like "use 3-5 focused tasks" and "stop when returns diminish" emerge naturally from optimizing `accuracy / (time × cost)` — they're not hardcoded.
+
+Trade-off: optimizing for `accuracy` alone ignores cost and produces verbose reports.
+
 ## Quick CLI run
 
 Run the lead agent from the repository root.
