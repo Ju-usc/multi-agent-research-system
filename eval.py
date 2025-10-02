@@ -4,7 +4,10 @@ BrowseComp Evaluation Module
 Evaluates the multi-agent research system on BrowseComp using DSPy's built-in evaluation framework.
 """
 
+import shutil
 import time
+import uuid
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 import dspy
@@ -43,6 +46,21 @@ class BrowseCompJudge(dspy.Signature):
 
 
 # Create a DSPy program wrapper for the async Agent
+def _create_isolated_workspace() -> Path:
+    """Create unique workspace for parallel-safe evaluation."""
+    work_dir = Path("memory_eval") / str(uuid.uuid4())[:8]
+    work_dir.mkdir(parents=True, exist_ok=True)
+    return work_dir
+
+
+def _cleanup_workspace(work_dir: Path) -> None:
+    """Best-effort cleanup of workspace."""
+    try:
+        shutil.rmtree(work_dir)
+    except Exception:
+        pass  # Don't fail evaluation if cleanup fails
+
+
 class BrowseCompProgram(dspy.Module):
     """
     DSPy program wrapper for Agent to make it compatible with dspy.Evaluate.
@@ -56,16 +74,9 @@ class BrowseCompProgram(dspy.Module):
         self._agent_factory = agent_factory or Agent
 
     def forward(self, problem: str) -> dspy.Prediction:
-        import uuid
-        from pathlib import Path
-        import shutil
-        
-        # Create isolated workspace for this example (prevents parallel conflicts)
-        work_dir = Path("memory_eval") / str(uuid.uuid4())[:8]
-        work_dir.mkdir(parents=True, exist_ok=True)
+        work_dir = _create_isolated_workspace()
         
         try:
-            # Create agent with isolated workspace
             agent = self._agent_factory(work_dir=str(work_dir))
             agent.web_search_tool.call_count = 0
 
@@ -79,11 +90,7 @@ class BrowseCompProgram(dspy.Module):
             
             return agent_prediction
         finally:
-            # Cleanup workspace after this example (best effort)
-            try:
-                shutil.rmtree(work_dir)
-            except Exception:
-                pass  # Don't fail evaluation if cleanup fails
+            _cleanup_workspace(work_dir)
 
 def browsecomp_metric(example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
     """
@@ -111,6 +118,19 @@ def browsecomp_metric(example: dspy.Example, pred: dspy.Prediction, trace=None) 
         return 0.0
 
 
+def _calculate_lm_cost(usage: dict) -> float:
+    """Calculate LM cost from usage stats with provider-agnostic token counting."""
+    lm_cost = 0.0
+    for model, stats in usage.items():
+        # Different providers return different formats
+        # This fallback handles: OpenAI, LiteLLM, and others
+        tokens = stats.get("total_tokens") or (
+            stats.get("prompt_tokens", 0) + stats.get("completion_tokens", 0)
+        )
+        lm_cost += (tokens / 1000.0) * LM_COST_PER_1K_TOKENS.get(model, 0.0)
+    return lm_cost
+
+
 def efficiency_accuracy_metric(example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
     """
     Metric for data collection phase.
@@ -119,82 +139,73 @@ def efficiency_accuracy_metric(example: dspy.Example, pred: dspy.Prediction, tra
     NOTE: Current time×cost formula is incomplete - will be revised
     after analyzing empirical distributions.
     """
-    # Reuse accuracy calculation (avoid duplicate judge call)
     accuracy = browsecomp_metric(example, pred, trace)
 
-    # Calculate costs (token fallback required for different providers)
     usage = pred.get_lm_usage() or {}
-    lm_cost = 0.0
-    for model, stats in usage.items():
-        # Different providers return different formats:
-        # - OpenAI/LiteLLM: {total_tokens, prompt_tokens, completion_tokens}
-        # - Others may only have: {prompt_tokens, completion_tokens}
-        # This fallback is empirically necessary and correct.
-        tokens = stats.get("total_tokens")
-        if tokens is None:
-            tokens = (stats.get("prompt_tokens", 0) + stats.get("completion_tokens", 0))
-        lm_cost += (tokens / 1000.0) * LM_COST_PER_1K_TOKENS.get(model, 0.0)
-
+    lm_cost = _calculate_lm_cost(usage)
     web_cost = pred.websearch_calls * WEBSEARCH_COST_PER_CALL_USD
     elapsed = pred.elapsed_seconds
     total_cost = lm_cost + web_cost
 
-    # Store RAW metrics (for empirical analysis)
+    # Store RAW metrics for empirical analysis
     pred.metrics = {
         "accuracy": accuracy,
-        
-        # Raw dimensions (for analysis - don't combine yet)
         "elapsed_seconds": elapsed,
         "total_cost_usd": total_cost,
         "lm_cost_usd": lm_cost,
         "web_cost_usd": web_cost,
         "websearch_calls": pred.websearch_calls,
-        
-        # Token details
         "lm_usage": usage,
-        
-        # Temporary: keep current formula for comparison
         "efficiency_temp": accuracy / (max(1e-6, elapsed) * max(1e-6, total_cost)) if accuracy > 0 else 0.0,
     }
 
-    # Return accuracy (optimize for correctness during data collection)
     return accuracy
 
+def _create_agent_factory(config):
+    """Create agent factory function with config."""
+    def agent_factory(work_dir: str | None = None):
+        return Agent(
+            big_model=config.big,
+            small_model=config.small,
+            temperature=TEMPERATURE,
+            big_max_tokens=config.big_max_tokens,
+            small_max_tokens=config.small_max_tokens,
+            work_dir=work_dir,
+        )
+    return agent_factory
+
+
+def _create_metric_with_capture(metric_fn, predictions_dict: dict):
+    """Create metric wrapper that captures predictions during evaluation."""
+    def metric_with_capture(example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
+        score = metric_fn(example, pred, trace)
+        predictions_dict[example.problem] = pred
+        return score
+    return metric_with_capture
+
+
+def _extract_predictions(predictions_dict: dict, examples: list) -> list:
+    """Extract predictions in correct order, handling missing ones."""
+    predictions = []
+    for i, ex in enumerate(examples):
+        pred = predictions_dict.get(ex.problem)
+        if pred is None:
+            print(f"⚠️ Missing prediction for example {i}, creating placeholder")
+            pred = dspy.Prediction(answer="ERROR", report="ERROR")
+            pred.metrics = {"accuracy": 0.0, "elapsed_seconds": 0, "total_cost_usd": 0}
+        predictions.append(pred)
+    return predictions
+
+
 def _parse_args():
-    parser = create_model_cli_parser(
-        "Run BrowseComp evaluation",
-        include_list=True,
-    )
+    parser = create_model_cli_parser("Run BrowseComp evaluation", include_list=True)
     parser.add_argument("--num-examples", type=int, default=10, help="Number of dataset examples")
     parser.add_argument("--num-threads", type=int, default=2, help="Parallel evaluation threads")
-    parser.add_argument(
-        "--metric",
-        choices=["efficiency", "accuracy"],
-        default="efficiency",
-        help="Metric to use during evaluation",
-    )
-    parser.add_argument(
-        "--optimize",
-        action="store_true",
-        help="Run GEPA optimization before evaluation",
-    )
-    parser.add_argument(
-        "--optimize-steps",
-        type=int,
-        default=10,
-        help="Number of GEPA optimization steps (default: 10)",
-    )
-    parser.add_argument(
-        "--train-size",
-        type=float,
-        default=0.7,
-        help="Train/test split ratio for GEPA optimization (default: 0.7)",
-    )
-    parser.add_argument(
-        "--save-metrics",
-        type=str,
-        help="Save detailed metrics to JSON file (e.g., results.json)",
-    )
+    parser.add_argument("--metric", choices=["efficiency", "accuracy"], default="efficiency")
+    parser.add_argument("--optimize", action="store_true", help="Run GEPA optimization")
+    parser.add_argument("--optimize-steps", type=int, default=10)
+    parser.add_argument("--train-size", type=float, default=0.7)
+    parser.add_argument("--save-metrics", type=str, help="Save detailed metrics to JSON")
     return parser.parse_args()
 
 
@@ -228,20 +239,9 @@ def main() -> None:
     
     dspy.settings.configure(track_usage=True)
     
-    # Agent factory with work_dir support for isolated workspaces
-    def agent_factory(work_dir: str | None = None):
-        return Agent(
-            big_model=config.big,
-            small_model=config.small,
-            temperature=TEMPERATURE,
-            big_max_tokens=config.big_max_tokens,
-            small_max_tokens=config.small_max_tokens,
-            work_dir=work_dir,
-        )
-    
+    agent_factory = _create_agent_factory(config)
     metric_fn = efficiency_accuracy_metric if args.metric == "efficiency" else browsecomp_metric
     
-    # Load dataset
     dataset = BrowseCompDataset(num_examples=args.num_examples)
     examples = dataset.load()
     print(f"📚 Loaded {len(examples)} examples")
@@ -268,22 +268,15 @@ def main() -> None:
     else:
         program = BrowseCompProgram(agent_factory)
 
-    # Capture predictions during evaluation (avoid re-running)
-    # Use dict keyed by problem to handle parallel execution correctly
+    # Capture predictions during evaluation
     predictions_dict = {}
-    
-    def metric_with_capture(example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
-        """Wrapper that captures predictions WITH metrics during evaluation."""
-        score = metric_fn(example, pred, trace)
-        # Store prediction (with metrics attached by metric_fn)
-        predictions_dict[example.problem] = pred
-        return score
+    metric_with_capture = _create_metric_with_capture(metric_fn, predictions_dict)
 
     # Run evaluation
     print(f"🚀 Evaluating...")
     evaluator = dspy.Evaluate(
         devset=examples,
-        metric=metric_with_capture,  # Use wrapper to capture predictions
+        metric=metric_with_capture,
         num_threads=args.num_threads,
         display_progress=True,
         display_table=5,
@@ -291,19 +284,8 @@ def main() -> None:
     )
     
     result = evaluator(program)
-
-    # Extract predictions in same order as examples
-    predictions = [predictions_dict.get(ex.problem) for ex in examples]
+    predictions = _extract_predictions(predictions_dict, examples)
     
-    # Handle missing predictions (errors during evaluation)
-    for i, pred in enumerate(predictions):
-        if pred is None:
-            print(f"⚠️ Missing prediction for example {i}, creating placeholder")
-            pred = dspy.Prediction(answer="ERROR", report="ERROR")
-            pred.metrics = {"accuracy": 0.0, "elapsed_seconds": 0, "total_cost_usd": 0}
-            predictions[i] = pred
-    
-    # Save structured results
     save_experiment_results(
         result=result,
         examples=examples,
