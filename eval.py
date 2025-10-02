@@ -268,11 +268,22 @@ def main() -> None:
     else:
         program = BrowseCompProgram(agent_factory)
 
+    # Capture predictions during evaluation (avoid re-running)
+    # Use dict keyed by problem to handle parallel execution correctly
+    predictions_dict = {}
+    
+    def metric_with_capture(example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
+        """Wrapper that captures predictions WITH metrics during evaluation."""
+        score = metric_fn(example, pred, trace)
+        # Store prediction (with metrics attached by metric_fn)
+        predictions_dict[example.problem] = pred
+        return score
+
     # Run evaluation
     print(f"🚀 Evaluating...")
     evaluator = dspy.Evaluate(
         devset=examples,
-        metric=metric_fn,
+        metric=metric_with_capture,  # Use wrapper to capture predictions
         num_threads=args.num_threads,
         display_progress=True,
         display_table=5,
@@ -281,19 +292,16 @@ def main() -> None:
     
     result = evaluator(program)
 
-    # Collect predictions for saving (re-run to capture full prediction objects)
-    print("\n📦 Collecting detailed results...")
-    predictions = []
-    for example in examples:
-        try:
-            pred = program(example.problem)
-            predictions.append(pred)
-        except Exception as e:
-            print(f"⚠️ Error collecting prediction: {e}")
-            # Create empty prediction with error marker
+    # Extract predictions in same order as examples
+    predictions = [predictions_dict.get(ex.problem) for ex in examples]
+    
+    # Handle missing predictions (errors during evaluation)
+    for i, pred in enumerate(predictions):
+        if pred is None:
+            print(f"⚠️ Missing prediction for example {i}, creating placeholder")
             pred = dspy.Prediction(answer="ERROR", report="ERROR")
             pred.metrics = {"accuracy": 0.0, "elapsed_seconds": 0, "total_cost_usd": 0}
-            predictions.append(pred)
+            predictions[i] = pred
     
     # Save structured results
     save_experiment_results(
