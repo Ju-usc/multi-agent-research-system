@@ -21,7 +21,7 @@ from config import (
 )
 from dataset import BrowseCompDataset
 from logging_config import configure_logging
-from utils import create_model_cli_parser, iter_model_presets
+from utils import create_model_cli_parser, iter_model_presets, save_experiment_results
 
 
 class BrowseCompJudge(dspy.Signature):
@@ -44,24 +44,46 @@ class BrowseCompJudge(dspy.Signature):
 
 # Create a DSPy program wrapper for the async Agent
 class BrowseCompProgram(dspy.Module):
-    """DSPy program wrapper for Agent to make it compatible with dspy.Evaluate."""
+    """
+    DSPy program wrapper for Agent to make it compatible with dspy.Evaluate.
+    
+    Creates isolated workspace per example to prevent filesystem conflicts
+    when running with --num-threads > 1.
+    """
 
-    def __init__(self, agent_factory: Callable[[], Agent] | None = None):
+    def __init__(self, agent_factory: Callable[[str | None], Agent] | None = None):
         super().__init__()
         self._agent_factory = agent_factory or Agent
 
     def forward(self, problem: str) -> dspy.Prediction:
-        agent = self._agent_factory()
-        agent.web_search_tool.call_count = 0
+        import uuid
+        from pathlib import Path
+        import shutil
+        
+        # Create isolated workspace for this example (prevents parallel conflicts)
+        work_dir = Path("memory_eval") / str(uuid.uuid4())[:8]
+        work_dir.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            # Create agent with isolated workspace
+            agent = self._agent_factory(work_dir=str(work_dir))
+            agent.web_search_tool.call_count = 0
 
-        start = time.perf_counter()
-        agent_prediction = agent(problem)
-        elapsed = time.perf_counter() - start
+            start = time.perf_counter()
+            agent_prediction = agent(problem)
+            elapsed = time.perf_counter() - start
 
-        agent_prediction.report = agent_prediction.answer
-        agent_prediction.elapsed_seconds = elapsed
-        agent_prediction.websearch_calls = agent.web_search_tool.call_count
-        return agent_prediction
+            agent_prediction.report = agent_prediction.answer
+            agent_prediction.elapsed_seconds = elapsed
+            agent_prediction.websearch_calls = agent.web_search_tool.call_count
+            
+            return agent_prediction
+        finally:
+            # Cleanup workspace after this example (best effort)
+            try:
+                shutil.rmtree(work_dir)
+            except Exception:
+                pass  # Don't fail evaluation if cleanup fails
 
 def browsecomp_metric(example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
     """
@@ -90,24 +112,24 @@ def browsecomp_metric(example: dspy.Example, pred: dspy.Prediction, trace=None) 
 
 
 def efficiency_accuracy_metric(example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
-    """Combined metric: accuracy divided by time and cost."""
+    """
+    Metric for data collection phase.
+    Returns accuracy but stores ALL raw metrics for analysis.
+    
+    NOTE: Current time×cost formula is incomplete - will be revised
+    after analyzing empirical distributions.
+    """
+    # Reuse accuracy calculation (avoid duplicate judge call)
+    accuracy = browsecomp_metric(example, pred, trace)
 
-    judge = dspy.ChainOfThought(BrowseCompJudge)
-
-    try:
-        result = judge(
-            question=example.problem,
-            report=pred.report,
-            correct_answer=example.answer,
-        )
-        accuracy = 1.0 if result.is_correct else 0.0
-    except Exception as exc:
-        print(f"⚠️ Evaluation error: {exc}")
-        return 0.0
-
+    # Calculate costs (token fallback required for different providers)
     usage = pred.get_lm_usage() or {}
     lm_cost = 0.0
     for model, stats in usage.items():
+        # Different providers return different formats:
+        # - OpenAI/LiteLLM: {total_tokens, prompt_tokens, completion_tokens}
+        # - Others may only have: {prompt_tokens, completion_tokens}
+        # This fallback is empirically necessary and correct.
         tokens = stats.get("total_tokens")
         if tokens is None:
             tokens = (stats.get("prompt_tokens", 0) + stats.get("completion_tokens", 0))
@@ -115,30 +137,35 @@ def efficiency_accuracy_metric(example: dspy.Example, pred: dspy.Prediction, tra
 
     web_cost = pred.websearch_calls * WEBSEARCH_COST_PER_CALL_USD
     elapsed = pred.elapsed_seconds
-
     total_cost = lm_cost + web_cost
-    epsilon = 1e-6
-    denom_time = max(epsilon, elapsed)
-    denom_cost = max(epsilon, total_cost)
-    score = accuracy / (denom_time * denom_cost) if accuracy > 0 else 0.0
 
-    pred.efficiency_breakdown = {
+    # Store RAW metrics (for empirical analysis)
+    pred.metrics = {
         "accuracy": accuracy,
-        "elapsed_seconds": denom_time,
+        
+        # Raw dimensions (for analysis - don't combine yet)
+        "elapsed_seconds": elapsed,
+        "total_cost_usd": total_cost,
         "lm_cost_usd": lm_cost,
         "web_cost_usd": web_cost,
-        "total_cost_usd": total_cost,
-        "score": score,
+        "websearch_calls": pred.websearch_calls,
+        
+        # Token details
+        "lm_usage": usage,
+        
+        # Temporary: keep current formula for comparison
+        "efficiency_temp": accuracy / (max(1e-6, elapsed) * max(1e-6, total_cost)) if accuracy > 0 else 0.0,
     }
 
-    return score
+    # Return accuracy (optimize for correctness during data collection)
+    return accuracy
 
 def _parse_args():
     parser = create_model_cli_parser(
         "Run BrowseComp evaluation",
         include_list=True,
     )
-    parser.add_argument("--num-examples", type=int, default=5, help="Number of dataset examples")
+    parser.add_argument("--num-examples", type=int, default=10, help="Number of dataset examples")
     parser.add_argument("--num-threads", type=int, default=2, help="Parallel evaluation threads")
     parser.add_argument(
         "--metric",
@@ -201,13 +228,16 @@ def main() -> None:
     
     dspy.settings.configure(track_usage=True)
     
-    agent_factory = lambda: Agent(
-        big_model=config.big,
-        small_model=config.small,
-        temperature=TEMPERATURE,
-        big_max_tokens=config.big_max_tokens,
-        small_max_tokens=config.small_max_tokens,
-    )
+    # Agent factory with work_dir support for isolated workspaces
+    def agent_factory(work_dir: str | None = None):
+        return Agent(
+            big_model=config.big,
+            small_model=config.small,
+            temperature=TEMPERATURE,
+            big_max_tokens=config.big_max_tokens,
+            small_max_tokens=config.small_max_tokens,
+            work_dir=work_dir,
+        )
     
     metric_fn = efficiency_accuracy_metric if args.metric == "efficiency" else browsecomp_metric
     
@@ -238,7 +268,7 @@ def main() -> None:
     else:
         program = BrowseCompProgram(agent_factory)
 
-    # Run evaluation with built-in save
+    # Run evaluation
     print(f"🚀 Evaluating...")
     evaluator = dspy.Evaluate(
         devset=examples,
@@ -247,10 +277,33 @@ def main() -> None:
         display_progress=True,
         display_table=5,
         max_errors=10,
-        save_as_json=args.save_metrics if args.save_metrics else None,
     )
     
     result = evaluator(program)
+
+    # Collect predictions for saving (re-run to capture full prediction objects)
+    print("\n📦 Collecting detailed results...")
+    predictions = []
+    for example in examples:
+        try:
+            pred = program(example.problem)
+            predictions.append(pred)
+        except Exception as e:
+            print(f"⚠️ Error collecting prediction: {e}")
+            # Create empty prediction with error marker
+            pred = dspy.Prediction(answer="ERROR", report="ERROR")
+            pred.metrics = {"accuracy": 0.0, "elapsed_seconds": 0, "total_cost_usd": 0}
+            predictions.append(pred)
+    
+    # Save structured results
+    save_experiment_results(
+        result=result,
+        examples=examples,
+        predictions=predictions,
+        config=config,
+        args=args,
+        output_dir="experiments"
+    )
 
     print("\n" + "=" * 50)
     print(f"📈 {args.metric.title()} Score: {result.score:.4f}")

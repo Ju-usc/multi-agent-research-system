@@ -207,3 +207,292 @@ def iter_model_presets() -> Iterable[tuple[str, Any]]:
     """Yield model presets sorted by key."""
 
     return sorted(MODEL_PRESETS.items())
+
+
+# ========== EXPERIMENT TRACKING ==========
+
+from datetime import datetime
+from pathlib import Path
+import numpy as np
+
+
+def save_experiment_results(
+    result,
+    examples,
+    predictions,
+    config,
+    args,
+    output_dir="experiments"
+):
+    """
+    Save comprehensive experiment results with full context.
+    Organizes experiments by ID with metadata, results, and summary stats.
+    """
+    output_path = Path(output_dir)
+    output_path.mkdir(exist_ok=True)
+    
+    # Create experiment ID
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    exp_id = f"{args.model}_{args.num_examples}ex_{timestamp}"
+    exp_dir = output_path / exp_id
+    exp_dir.mkdir(exist_ok=True)
+    
+    # 1. Save metadata (experiment config with clear model roles)
+    metadata = {
+        "experiment_id": exp_id,
+        "timestamp": timestamp,
+        "config": {
+            "model_preset": args.model,
+            "lead_agent_model": config.big,      # Clear: which model for lead
+            "subagent_model": config.small,      # Clear: which model for subagents
+            "num_examples": args.num_examples,
+            "metric": args.metric,
+            "num_threads": args.num_threads,
+        },
+        "summary": {
+            "score": result.score,
+            "total_examples": len(examples),
+            "passed": sum(1 for p in predictions if p.get('metrics', {}).get('accuracy', 0) > 0),
+            "failed": sum(1 for p in predictions if p.get('metrics', {}).get('accuracy', 0) == 0),
+        }
+    }
+    
+    with open(exp_dir / "metadata.json", "w") as f:
+        json.dump(metadata, f, indent=2)
+    
+    # 2. Save detailed results (all predictions with metrics)
+    detailed_results = []
+    for example, pred in zip(examples, predictions):
+        detailed_results.append({
+            "example": {
+                "problem": example.problem,
+                "answer": example.answer,
+            },
+            "prediction": pred.toDict(),  # Includes our custom pred.metrics!
+        })
+    
+    with open(exp_dir / "results.json", "w") as f:
+        json.dump(detailed_results, f, indent=2)
+    
+    # 3. Save summary statistics (for quick analysis)
+    metrics_list = [p.get('metrics', {}) for p in predictions]
+    if metrics_list and metrics_list[0]:
+        def safe_stats(values):
+            vals = [v for v in values if v is not None and not (isinstance(v, float) and np.isnan(v))]
+            if not vals:
+                return None
+            return {
+                "mean": float(np.mean(vals)),
+                "std": float(np.std(vals)),
+                "min": float(np.min(vals)),
+                "max": float(np.max(vals)),
+                "median": float(np.median(vals)),
+            }
+        
+        summary_stats = {
+            "accuracy": safe_stats([m.get('accuracy') for m in metrics_list]),
+            "elapsed_seconds": safe_stats([m.get('elapsed_seconds') for m in metrics_list]),
+            "total_cost_usd": safe_stats([m.get('total_cost_usd') for m in metrics_list]),
+            "lm_cost_usd": safe_stats([m.get('lm_cost_usd') for m in metrics_list]),
+            "web_cost_usd": safe_stats([m.get('web_cost_usd') for m in metrics_list]),
+        }
+        
+        with open(exp_dir / "summary_stats.json", "w") as f:
+            json.dump(summary_stats, f, indent=2)
+    
+    # 4. Update experiments manifest (index of all runs)
+    manifest_path = output_path / "manifest.json"
+    if manifest_path.exists():
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+    else:
+        manifest = {"experiments": []}
+    
+    manifest["experiments"].append({
+        "experiment_id": exp_id,
+        "timestamp": timestamp,
+        "model_preset": args.model,
+        "lead_agent_model": config.big,
+        "subagent_model": config.small,
+        "num_examples": args.num_examples,
+        "score": result.score,
+        "path": str(exp_dir),
+    })
+    
+    with open(manifest_path, "w") as f:
+        json.dump(manifest, f, indent=2)
+    
+    print(f"\n✅ Results saved to: {exp_dir}")
+    print(f"   - metadata.json (experiment config)")
+    print(f"   - results.json (detailed predictions)")
+    print(f"   - summary_stats.json (statistical summary)")
+    
+    return exp_dir
+
+
+class ExperimentAnalyzer:
+    """Load and analyze saved experiments."""
+    
+    def __init__(self, experiments_dir="experiments"):
+        self.experiments_dir = Path(experiments_dir)
+        manifest_path = self.experiments_dir / "manifest.json"
+        if manifest_path.exists():
+            with open(manifest_path) as f:
+                self.manifest = json.load(f)
+        else:
+            self.manifest = {"experiments": []}
+    
+    def list_experiments(self):
+        """List all experiments as DataFrame."""
+        try:
+            import pandas as pd
+            return pd.DataFrame(self.manifest["experiments"])
+        except ImportError:
+            print("⚠️ pandas not available. Install with: uv add pandas")
+            return self.manifest["experiments"]
+    
+    def load_experiment(self, experiment_id):
+        """Load full results for an experiment."""
+        exp_dir = self.experiments_dir / experiment_id
+        
+        with open(exp_dir / "metadata.json") as f:
+            metadata = json.load(f)
+        
+        with open(exp_dir / "results.json") as f:
+            results = json.load(f)
+        
+        with open(exp_dir / "summary_stats.json") as f:
+            stats = json.load(f)
+        
+        return {
+            "metadata": metadata,
+            "results": results,
+            "stats": stats,
+        }
+    
+    def aggregate_metrics(self, experiment_ids=None):
+        """Aggregate all metrics across experiments into single DataFrame."""
+        try:
+            import pandas as pd
+        except ImportError:
+            print("⚠️ pandas not available. Install with: uv add pandas")
+            return None
+        
+        if experiment_ids is None:
+            experiment_ids = [e["experiment_id"] for e in self.manifest["experiments"]]
+        
+        all_metrics = []
+        for exp_id in experiment_ids:
+            exp = self.load_experiment(exp_id)
+            for result in exp["results"]:
+                metrics = result["prediction"].get("metrics", {})
+                metrics["experiment_id"] = exp_id
+                metrics["model_preset"] = exp["metadata"]["config"]["model_preset"]
+                metrics["lead_agent_model"] = exp["metadata"]["config"]["lead_agent_model"]
+                metrics["subagent_model"] = exp["metadata"]["config"]["subagent_model"]
+                all_metrics.append(metrics)
+        
+        return pd.DataFrame(all_metrics)
+
+
+def analyze_experiments(experiments_dir="experiments"):
+    """
+    Analyze all baseline experiments and print summary.
+    Convenience function for quick analysis.
+    """
+    from pathlib import Path
+    
+    analyzer = ExperimentAnalyzer(experiments_dir)
+    
+    print("=" * 70)
+    print("BASELINE PERFORMANCE ANALYSIS")
+    print("=" * 70)
+    
+    # List all experiments
+    experiments_df = analyzer.list_experiments()
+    print("\n1. ALL EXPERIMENTS")
+    if hasattr(experiments_df, 'to_string'):
+        print(experiments_df)
+    else:
+        print(json.dumps(experiments_df, indent=2))
+    
+    # Analyze each experiment
+    for exp_info in analyzer.manifest["experiments"]:
+        exp_id = exp_info["experiment_id"]
+        print(f"\n" + "=" * 70)
+        print(f"EXPERIMENT: {exp_id}")
+        print("=" * 70)
+        
+        # Load experiment (handle missing summary_stats)
+        exp_dir = Path(experiments_dir) / exp_id
+        with open(exp_dir / "metadata.json") as f:
+            metadata = json.load(f)
+        with open(exp_dir / "results.json") as f:
+            results = json.load(f)
+        
+        print(f"\nConfiguration:")
+        print(f"  Model Preset: {metadata['config']['model_preset']}")
+        print(f"  Lead Agent: {metadata['config']['lead_agent_model']}")
+        print(f"  Subagent: {metadata['config']['subagent_model']}")
+        print(f"  Examples: {metadata['config']['num_examples']}")
+        print(f"  Metric: {metadata['config']['metric']}")
+        
+        print(f"\nResults:")
+        print(f"  Score: {metadata['summary']['score']:.2%}")
+        print(f"  Passed: {metadata['summary']['passed']}")
+        print(f"  Failed: {metadata['summary']['failed']}")
+        
+        # Extract raw metrics from predictions
+        times = []
+        web_calls = []
+        has_metrics = []
+        
+        for result in results:
+            pred = result["prediction"]
+            # Check for metrics field first
+            if "metrics" in pred:
+                has_metrics.append(True)
+                metrics = pred["metrics"]
+                if "elapsed_seconds" in metrics:
+                    times.append(metrics["elapsed_seconds"])
+                if "websearch_calls" in metrics:
+                    web_calls.append(metrics["websearch_calls"])
+            else:
+                has_metrics.append(False)
+                # Fall back to top-level fields
+                if "elapsed_seconds" in pred:
+                    times.append(pred["elapsed_seconds"])
+                if "websearch_calls" in pred:
+                    web_calls.append(pred["websearch_calls"])
+        
+        if times:
+            print(f"\nTime Distribution (seconds):")
+            print(f"  Mean: {np.mean(times):.2f}s")
+            print(f"  Median: {np.median(times):.2f}s")
+            print(f"  Std: {np.std(times):.2f}s")
+            print(f"  Min: {np.min(times):.2f}s")
+            print(f"  Max: {np.max(times):.2f}s")
+            print(f"  Range: {np.max(times) / max(np.min(times), 0.001):.1f}x")
+        
+        if web_calls:
+            print(f"\nWeb Search Calls:")
+            print(f"  Mean: {np.mean(web_calls):.1f}")
+            print(f"  Median: {np.median(web_calls):.1f}")
+            print(f"  Total: {sum(web_calls)}")
+        
+        # Diagnostic info
+        metrics_count = sum(has_metrics)
+        if metrics_count < len(results):
+            print(f"\n⚠️  WARNING: Only {metrics_count}/{len(results)} predictions have 'metrics' field")
+            print(f"   This suggests predictions were re-run after evaluation without capturing metrics.")
+    
+    print("\n" + "=" * 70)
+    print("SUMMARY")
+    print("=" * 70)
+    print(f"Total experiments: {len(analyzer.manifest['experiments'])}")
+    print("\nDIAGNOSTIC INFO:")
+    print("- If elapsed_seconds ~0.03s and websearch_calls=0: predictions are fresh runs without real execution")
+    print("- If 'metrics' field missing: predictions weren't captured during evaluation phase")
+    print("- Real agent execution should take 30-120s and make 5-20 web search calls")
+    
+    return analyzer

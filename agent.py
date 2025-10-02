@@ -43,12 +43,18 @@ class Agent(dspy.Module):
         temperature: float = TEMPERATURE,
         big_max_tokens: int = BIG_MODEL_MAX_TOKENS,
         small_max_tokens: int = SMALL_MODEL_MAX_TOKENS,
+        work_dir: str | None = None,
     ) -> None:
         super().__init__()
         # Shared adapter for structured outputs
         # Core tools
         self.web_search_tool = WebSearchTool()
-        self.fs_tool = FileSystemTool()
+        
+        # Use isolated work directory or default to shared "memory"
+        # Enables parallel evaluation without filesystem conflicts
+        if work_dir is None:
+            work_dir = "memory"  # Backward compatible default
+        self.fs_tool = FileSystemTool(root=work_dir)
         self.todo_list_tool = TodoListTool()
         self.fs = self.fs_tool  # provide backward-compatible alias
 

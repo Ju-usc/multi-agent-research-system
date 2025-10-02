@@ -25,4 +25,6 @@ docs/
 logs/
 
 tasks/
-memory/
+memory/experiments/
+memory_eval/
+memory_test/

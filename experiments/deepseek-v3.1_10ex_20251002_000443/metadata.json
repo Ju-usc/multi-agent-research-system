@@ -1,0 +1,18 @@
+{
+  "experiment_id": "deepseek-v3.1_10ex_20251002_000443",
+  "timestamp": "20251002_000443",
+  "config": {
+    "model_preset": "deepseek-v3.1",
+    "lead_agent_model": "openrouter/deepseek/deepseek-chat-v3.1:free",
+    "subagent_model": "openrouter/deepseek/deepseek-chat-v3.1:free",
+    "num_examples": 10,
+    "metric": "accuracy",
+    "num_threads": 2
+  },
+  "summary": {
+    "score": 0.0,
+    "total_examples": 10,
+    "passed": 0,
+    "failed": 10
+  }
+}

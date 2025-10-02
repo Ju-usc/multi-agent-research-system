@@ -171,7 +171,7 @@ The example stores the run at `logs/trace-ai-collab.log`. Pre-create directories
 1. Research
 
 - Find existing patterns in this codebase
-- Search internet, mcp tools if relevant
+- Search internet, mcp tools if relevant (nia mcp)
 - Start by asking follow up questions to set the direction of research
 - Report findings in research.md file
 
