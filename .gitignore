@@ -25,6 +25,7 @@ docs/
 logs/
 
 tasks/
-memory/experiments/
+memory/
 memory_eval/
 memory_test/
+experiments/
