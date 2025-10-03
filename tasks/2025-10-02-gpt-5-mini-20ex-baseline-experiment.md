@@ -309,16 +309,18 @@ efficiency = 0.5 × norm_acc + 0.3 × norm_time + 0.2 × norm_cost
    - **Status:** ✅ Fixed in commit `eaaafb0`
    - **Action:** Future runs will use correct pricing
 
-### High Priority
-1. **Subagent execution errors (20% rate)**
-   - Location: `SubagentTool.forward()`
-   - Impact: Reduces effective accuracy
-   - Action: Add retry logic, better error messages
-
-2. **Filesystem artifact errors**
-   - Location: Subagent file operations
-   - Impact: Lost intermediate results
-   - Action: Ensure directories exist before writes
+### High Priority (FIXED)
+1. **🐛 Filesystem artifact path mismatch (20% rate)** ✅ FIXED
+   - **Root cause:** Workspace isolation + hardcoded path prefix
+   - **Details:** 
+     - eval.py creates isolated workspace: `memory_eval/<uuid>/`
+     - Subagents return: `artifact_path: "memory/results/data.json"`
+     - Lead tries to read but file at: `memory_eval/<uuid>/results/data.json`
+     - Path mismatch → "[ERROR] File not found"
+   - **Examples affected:** 3, 6, 8, 17 (all had filesystem errors)
+   - **Fix:** Normalize artifact_path in SubagentTool to strip "memory/" prefix
+   - **Status:** ✅ Fixed in commit `444f2cb`
+   - **Impact:** Future runs won't have this 20% error rate
 
 ### Medium Priority
 3. **Empty web search results**
