@@ -12,7 +12,9 @@ from typing import Any, Iterable, Tuple
 from dotenv import load_dotenv
 
 from config import MODEL_PRESETS
-
+import threading
+import time
+import os
 
 def setup_langfuse():
     """
@@ -510,9 +512,6 @@ def start_cleanup_watchdog(grace_period_seconds: int = 30) -> None:
     Args:
         grace_period_seconds: How long to wait before forcing exit (default: 30s)
     """
-    import threading
-    import time
-    import os
     
     def force_exit():
         time.sleep(grace_period_seconds)
