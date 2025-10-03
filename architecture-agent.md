@@ -22,7 +22,8 @@ ReAct-style orchestration: a **Lead Agent** plans via a **To-Do List**, uses fil
 - `todo_list_write(todos)` — write the entire To-Do list as a JSON payload.
 - `filesystem_read(path)` — read a markdown artifact stored under the sandboxed `memory/` root.
 - `filesystem_tree(max_depth)` — list artifacts under `memory/` for quick discovery.
-- `subagent_parallel_run(calls)` — launch several subagents with validated task payloads.
+- `subagent_run(task)` — execute a single subagent research task.
+- `parallel_tool_call(calls)` — run multiple tools concurrently (e.g., spawn multiple subagents in parallel).
 
 **Subagent tools**
 - `web_search(query, …)` — research on the web.
@@ -41,7 +42,7 @@ ReAct-style orchestration: a **Lead Agent** plans via a **To-Do List**, uses fil
 
 1) **Decompose → To-Do:** capture high-level plans as To-Dos.
 2) **Inspect:** call `filesystem_tree` then `filesystem_read` to reuse artifacts.
-3) **Dispatch:** call `subagent_parallel_run` for the active tasks when parallelism helps.
+3) **Dispatch:** use `parallel_tool_call` with multiple `subagent_run` calls to execute tasks in parallel when beneficial.
 4) **Collect:** aggregate subagent summaries and note any referenced artifacts.
 5) **Update:** adjust To-Dos through `todo_list_write` and add follow-ups for gaps.
 6) **Synthesize & stop:** produce the answer and stop when the Lead judges it complete.

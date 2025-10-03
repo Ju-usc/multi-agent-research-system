@@ -37,20 +37,33 @@ class WebSearchTool:
     @observe(name="tool_web_search", capture_input=True, capture_output=True)
     def __call__(
         self,
-        queries: List[str],
+        queries: List[str],  # Supports batch queries - more efficient (1 API call vs N calls)
         max_results: Optional[int] = 5,
         max_tokens_per_page: Optional[int] = 1024,
     ) -> str:
+        """Search the web using Perplexity API.
+        
+        Args:
+            queries: List of query strings to search (batched in single API request for efficiency)
+            max_results: Max results per query (default 5)
+            max_tokens_per_page: Max content tokens per page (default 1024)
+            
+        Returns:
+            Formatted search results with titles, snippets, URLs, dates
+        """
         self.call_count += 1
         try:
+            # Perplexity API accepts either string or List[str] for batch searching
+            # Batch is more efficient: pricing is per API request, not per query
+            query_param = queries if len(queries) != 1 else queries[0]
             response = self.client.search.create(
-                query=queries if len(queries) != 1 else queries[0],
+                query=query_param,
                 max_results=max_results,
                 max_tokens_per_page=max_tokens_per_page,
             )
             results = response.results
         except Exception as exc:
-            return f"Error searching for '{queries}': {exc}"
+            return f"Error searching for {queries}: {exc}"
 
         lines: List[str] = []
         for idx, result in enumerate(results, 1):
@@ -64,14 +77,35 @@ class WebSearchTool:
         return "\n\n".join(lines)
 
 class ParallelToolCall:
-    """Run several tool invocations concurrently and return their outputs.
-
-    Up to four calls execute in parallel threads. Example:
-
+    """Run multiple tool invocations concurrently (max 4 parallel threads).
+    
+    IMPORTANT: Available tools depend on context:
+    - Lead agent can parallelize: subagent_run, filesystem_read, todo_list_read
+    - Subagents can parallelize: web_search, filesystem_write
+    
+    Example - Lead spawning 3 subagents in parallel:
         [
-            {"tool": "web_search", "args": {"query": "multi-agent"}},
-            {"tool": "filesystem_read", "args": {"path": "summary.md"}},
+            {"tool": "subagent_run", "args": {"task": {"task_name": "research-ams", ...}}},
+            {"tool": "subagent_run", "args": {"task": {"task_name": "research-rollo", ...}}},
+            {"tool": "subagent_run", "args": {"task": {"task_name": "find-papers", ...}}}
         ]
+    
+    Example - Subagent batching multiple web searches in ONE call (more efficient):
+        {"tool": "web_search", "args": {"queries": ["AMS Fellows 2006-2019", "Rollo Davidson winners 1991-2004"]}}
+    
+    Example - Subagent using parallel_tool_call for different tools:
+        [
+            {"tool": "web_search", "args": {"queries": ["query1", "query2"]}},
+            {"tool": "filesystem_write", "args": {"path": "findings.txt", "content": "..."}}
+        ]
+    
+    Note: Each tool must specify correct args as defined in its signature.
+    - subagent_run: task (SubagentTask dict with task_name, prompt, description, tool_budget, etc.)
+    - web_search: queries (List[str]), max_results (int, optional), max_tokens_per_page (int, optional)
+    - filesystem_write: path (str), content (str)
+    - filesystem_read: path (str)
+    
+    IMPORTANT: web_search accepts List[str] for batch efficiency (1 API call = N queries).
     """
 
     def __init__(self, tools: Dict[str, Any], *, num_threads: int = 4) -> None:
@@ -218,18 +252,30 @@ class TodoListTool:
 
 # ---------- SubagentTool ----------
 
-class SubagentTool(dspy.Module):
-    """Execute subagent tasks with per-task instruction via with_instruction."""
+class SubagentTool:
+    """Execute a single subagent research task.
+    
+    This is a regular tool (not a dspy.Module) that creates and runs a ReAct agent
+    for one specific research task. For parallel execution of multiple subagents,
+    use the parallel_tool_call tool in the lead agent.
+    """
 
     def __init__(self, tools: List[dspy.Tool], lm: Any, adapter: Optional[Any] = None) -> None:
-        super().__init__()
         self._tools = tools
         self._lm = lm
         self._adapter = adapter
 
-    @trace_call("tool_subagent")
-    @observe(name="tool_subagent", capture_input=True, capture_output=True)
-    def forward(self, task: SubagentTask) -> Optional[SubagentResult]:
+    @trace_call("tool_subagent_run")
+    @observe(name="tool_subagent_run", capture_input=True, capture_output=True)
+    def __call__(self, task: SubagentTask) -> str:
+        """Execute one subagent task and return JSON-formatted result.
+        
+        Args:
+            task: SubagentTask with research objective and constraints
+            
+        Returns:
+            JSON string with SubagentResult containing summary, detail, artifact_path
+        """
         # Append the task prompt from the lead agent to the existing instructions
         current_instructions = ExecuteSubagentTask.instructions
         new_instructions = current_instructions + "\n" + task.prompt
@@ -242,44 +288,7 @@ class SubagentTool(dspy.Module):
         with dspy.context(lm=self._lm, adapter=self._adapter):
             prediction = subagent(task=task)
 
-        final = prediction.final_result
-        final.task_name = task.task_name
-        return final
-
-    @trace_call("tool_subagent_parallel_run")
-    @observe(name="tool_subagent_parallel_run", capture_input=True, capture_output=True)
-    def parallel_run(self, tasks: List[SubagentTask]) -> str:
-        if not tasks:
-            return json.dumps({"successes": [], "failures": []}, indent=2)
-
-        examples = [dspy.Example(task=task).with_inputs("task") for task in tasks]
-
-        results, failed_examples, exceptions = self.batch(
-            examples,
-            return_failed_examples=True,
-            max_errors=len(examples),
-            provide_traceback=True,
-        )
-
-        successes: list[dict[str, Any]] = []
-        degraded_failures: list[dict[str, str]] = []
-
-        for example_obj, output in zip(examples, results):
-            task_name = example_obj.task.task_name if hasattr(example_obj, "task") else "unknown"
-            if output is None or not hasattr(output, "model_dump"):
-                degraded_failures.append({"task_name": task_name, "error": "Subagent returned no result"})
-                continue
-            successes.append(output.model_dump())
-
-        summary = {
-            "successes": successes,
-            "failures": [
-                {"task_name": ex.task.task_name, "error": str(err)}
-                for ex, err in zip(failed_examples, exceptions)
-            ],
-        }
-
-        if degraded_failures:
-            summary["failures"].extend(degraded_failures)
-
-        return json.dumps(summary, indent=2)
+        result = prediction.final_result
+        result.task_name = task.task_name
+        
+        return json.dumps(result.model_dump(), indent=2)

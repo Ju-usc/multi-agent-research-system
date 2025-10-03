@@ -125,18 +125,19 @@ class Agent(dspy.Module):
                 name="todo_list_write",
                 desc="Write the To-Do list. Useful when you need to plan something. You should always try to update the To-Do list status.",
             ),
-            "subagent_parallel_run": dspy.Tool(
-                self.subagent_tool.parallel_run,
-                name="subagent_parallel_run",
-                desc="Kick off several subagents at once; each runs web search and writes back findings.",
+            "subagent_run": dspy.Tool(
+                self.subagent_tool,
+                name="subagent_run",
+                desc="Execute a single subagent research task. Returns JSON with summary, detail, and artifact_path. For parallel execution of multiple subagents, use parallel_tool_call.",
             ),
         }
-
+        
+        # Add parallel_tool_call for lead agent to enable parallel subagent execution
         lead_parallel_tool = ParallelToolCall(self.lead_agent_tools, num_threads=4)
         self.lead_agent_tools["parallel_tool_call"] = dspy.Tool(
             lead_parallel_tool,
             name="parallel_tool_call",
-            desc="Run multiple lead tools in parallel with a single call.",
+            desc="Run multiple lead agent tools in parallel. Useful for spawning multiple subagents concurrently.",
         )
 
 
