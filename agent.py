@@ -85,7 +85,7 @@ class Agent(dspy.Module):
             "filesystem_write": dspy.Tool(
                 self.fs_tool.write,
                 name="filesystem_write",
-                desc="Write content to specific path in the filesystem. Drop the leading 'memory/' prefix in paths.",
+                desc="Write content to path relative to workspace root. Use simple relative paths like 'results/data.json', NOT 'memory/results/data.json'.",
             ),
         }
 
@@ -108,12 +108,12 @@ class Agent(dspy.Module):
             "filesystem_read": dspy.Tool(
                 self.fs_tool.read,
                 name="filesystem_read",
-                desc="Read artifacts from subagents under memory/. Drop the leading 'memory/' prefix in paths.",
+                desc="Read artifacts using paths relative to workspace root (e.g., 'results/data.json').",
             ),
             "filesystem_tree": dspy.Tool(
                 self.fs_tool.tree,
                 name="filesystem_tree",
-                desc="List the current memory tree to see available artifacts from subagents.",
+                desc="List workspace tree to see available artifacts. Returns paths relative to workspace root.",
             ),
             "todo_list_read": dspy.Tool(
                 self.todo_list_tool.read,

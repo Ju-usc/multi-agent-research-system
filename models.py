@@ -40,7 +40,7 @@ class SubagentResult(BaseModel):
     detail: Optional[str] = Field(default=None, description="Optional short-form detail that supplements the summary")
     artifact_path: Optional[str] = Field(
         default=None,
-        description="Optional path to a filesystem artifact containing the full report when detail does not fit inline",
+        description="Optional path relative to workspace root (e.g., 'results/data.json', NOT 'memory/results/data.json'). Omit if no file was written.",
     )
 
 # ---------- Todo List ----------

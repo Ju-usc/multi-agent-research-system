@@ -170,7 +170,7 @@ class FileSystemTool:
     def read(self, path: str) -> str:
         file_path = self.root / path
         if not file_path.exists():
-            return f"[ERROR] File not found: {path}"
+            return f"[ERROR] File not found: {path}. The subagent may have returned artifact_path without actually writing the file. Use the inline 'detail' field instead, or verify file was written."
         return file_path.read_text()
 
     def exists(self, path: str) -> bool:
@@ -290,5 +290,12 @@ class SubagentTool:
 
         result = prediction.final_result
         result.task_name = task.task_name
+        
+        # Normalize artifact_path: strip any "memory/" prefix to ensure workspace-relative path
+        # This prevents issues when workspace root is not "memory/" (e.g., "memory_eval/uuid/")
+        if result.artifact_path:
+            result.artifact_path = result.artifact_path.lstrip('/')
+            if result.artifact_path.startswith('memory/'):
+                result.artifact_path = result.artifact_path[7:]  # Remove "memory/" prefix
         
         return json.dumps(result.model_dump(), indent=2)
