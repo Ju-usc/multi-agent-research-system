@@ -4,16 +4,12 @@ BrowseComp Evaluation Module
 Evaluates the multi-agent research system on BrowseComp using DSPy's built-in evaluation framework.
 """
 
-import shutil
 import time
-import uuid
-from pathlib import Path
-from typing import Any, Callable, Optional
+import logging
 
 import dspy
 from dspy.adapters.chat_adapter import ChatAdapter
 from dspy.teleprompt import GEPA
-import logging
 
 from agent import Agent
 from config import (
@@ -29,7 +25,14 @@ from config import (
 )
 from dataset import BrowseCompDataset
 from logging_config import configure_logging
-from utils import create_model_cli_parser, iter_model_presets, save_experiment_results, start_cleanup_watchdog
+from utils import (
+    create_model_cli_parser,
+    iter_model_presets,
+    save_experiment_results,
+    start_cleanup_watchdog,
+    create_isolated_workspace,
+    cleanup_workspace,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,22 +54,6 @@ class BrowseCompJudge(dspy.Signature):
     is_correct: bool = dspy.OutputField(desc="True if extracted answer matches correct answer, False otherwise")
 
 
-# Create a DSPy program wrapper for the async Agent
-def _create_isolated_workspace() -> Path:
-    """Create unique workspace for parallel-safe evaluation."""
-    work_dir = Path("memory_eval") / str(uuid.uuid4())[:8]
-    work_dir.mkdir(parents=True, exist_ok=True)
-    return work_dir
-
-
-def _cleanup_workspace(work_dir: Path) -> None:
-    """Best-effort cleanup of workspace."""
-    try:
-        shutil.rmtree(work_dir)
-    except Exception:
-        pass  # Don't fail evaluation if cleanup fails
-
-
 class BrowseCompProgram(dspy.Module):
     """
     DSPy program wrapper for Agent to make it compatible with dspy.Evaluate.
@@ -75,15 +62,25 @@ class BrowseCompProgram(dspy.Module):
     when running with --num-threads > 1.
     """
 
-    def __init__(self, agent_factory: Callable[[str | None], Agent] | None = None):
+    def __init__(self, big_model: str, small_model: str, big_max_tokens: int, small_max_tokens: int):
         super().__init__()
-        self._agent_factory = agent_factory or Agent
+        self.big_model = big_model
+        self.small_model = small_model
+        self.big_max_tokens = big_max_tokens
+        self.small_max_tokens = small_max_tokens
 
     def forward(self, problem: str) -> dspy.Prediction:
-        work_dir = _create_isolated_workspace()
+        work_dir = create_isolated_workspace()
         
         try:
-            agent = self._agent_factory(work_dir=str(work_dir))
+            agent = Agent(
+                big_model=self.big_model,
+                small_model=self.small_model,
+                temperature=TEMPERATURE,
+                big_max_tokens=self.big_max_tokens,
+                small_max_tokens=self.small_max_tokens,
+                work_dir=str(work_dir),
+            )
             agent.web_search_tool.call_count = 0
 
             start = time.perf_counter()
@@ -96,145 +93,153 @@ class BrowseCompProgram(dspy.Module):
             
             return agent_prediction
         finally:
-            _cleanup_workspace(work_dir)
+            cleanup_workspace(work_dir)
 
-def browsecomp_metric(example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
-    """
-    DSPy metric function for BrowseComp evaluation.
-    Uses dedicated grader model (GPT-5) for consistent evaluation across all experiments.
+class BrowseCompEvaluator:
+    """Encapsulates BrowseComp evaluation with proper state management."""
     
-    Args:
-        example: DSPy Example with 'problem' and 'answer' fields
-        pred: DSPy Prediction with 'report' field
-        trace: Optional trace for bootstrapping (not used here)
+    def __init__(self, config, args):
+        self.config = config
+        self.args = args
         
-    Returns:
-        1.0 if correct, 0.0 if incorrect
-    """
-    # Use dedicated grader LM for consistent evaluation
-    grader_lm = dspy.LM(
-        model=GRADER_MODEL,
-        temperature=1.0,  # Required for GPT-5 reasoning models
-        max_tokens=GRADER_MAX_TOKENS,
-        **lm_kwargs_for(GRADER_MODEL),
-    )
-    
-    judge = dspy.ChainOfThought(BrowseCompJudge)
-    
-    try:
-        with dspy.context(lm=grader_lm):
-            result = judge(
-                question=example.problem,
-                report=pred.report,
-                correct_answer=example.answer
-            )
-        return 1.0 if result.is_correct else 0.0
-    except Exception as e:
-        print(f"⚠️ Evaluation error: {e}")
-        return 0.0
-
-
-def _calculate_lm_cost(usage: dict) -> float:
-    """Calculate LM cost with accurate input/output/cached token pricing.
-    
-    Uses actual model pricing (not free tier) for meaningful efficiency metrics.
-    Properly accounts for:
-    - Different input vs output token prices
-    - Cached token discounts (e.g., 90% off for OpenAI cached inputs)
-    - Provider-specific token tracking formats
-    """
-    total_cost = 0.0
-    
-    for model_name, stats in usage.items():
-        pricing = LM_PRICING.get(model_name, {})
-        if not pricing:
-            logger.warning(f"No pricing configured for model: {model_name}")
-            continue
-        
-        # Extract token counts
-        prompt_tokens = stats.get("prompt_tokens", 0)
-        completion_tokens = stats.get("completion_tokens", 0)
-        
-        # Extract cached tokens if available (OpenAI and some providers track this)
-        prompt_details = stats.get("prompt_tokens_details", {})
-        cached_tokens = prompt_details.get("cached_tokens", 0)
-        non_cached_input = prompt_tokens - cached_tokens
-        
-        # Calculate costs with proper pricing for each token type
-        input_cost = (non_cached_input / 1000.0) * pricing.get("input", 0.0)
-        cached_cost = (cached_tokens / 1000.0) * pricing.get("cached_input", pricing.get("input", 0.0))
-        output_cost = (completion_tokens / 1000.0) * pricing.get("output", 0.0)
-        
-        total_cost += input_cost + cached_cost + output_cost
-    
-    return total_cost
-
-
-def efficiency_accuracy_metric(example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
-    """
-    Metric for data collection phase.
-    Returns accuracy but stores ALL raw metrics for analysis.
-    
-    NOTE: Current time×cost formula is incomplete - will be revised
-    after analyzing empirical distributions.
-    """
-    accuracy = browsecomp_metric(example, pred, trace)
-
-    usage = pred.get_lm_usage() or {}
-    lm_cost = _calculate_lm_cost(usage)
-    web_cost = pred.websearch_calls * WEBSEARCH_COST_PER_CALL_USD
-    elapsed = pred.elapsed_seconds
-    total_cost = lm_cost + web_cost
-
-    # Store RAW metrics for empirical analysis
-    pred.metrics = {
-        "accuracy": accuracy,
-        "elapsed_seconds": elapsed,
-        "total_cost_usd": total_cost,
-        "lm_cost_usd": lm_cost,
-        "web_cost_usd": web_cost,
-        "websearch_calls": pred.websearch_calls,
-        "lm_usage": usage,
-        "efficiency_temp": accuracy / (max(1e-6, elapsed) * max(1e-6, total_cost)) if accuracy > 0 else 0.0,
-    }
-
-    return accuracy
-
-def _create_agent_factory(config):
-    """Create agent factory function with config."""
-    def agent_factory(work_dir: str | None = None):
-        return Agent(
-            big_model=config.big,
-            small_model=config.small,
-            temperature=TEMPERATURE,
-            big_max_tokens=config.big_max_tokens,
-            small_max_tokens=config.small_max_tokens,
-            work_dir=work_dir,
+        # Initialize grader LM once for all evaluations (major efficiency improvement)
+        self.grader_lm = dspy.LM(
+            model=GRADER_MODEL,
+            temperature=1.0,  # Required for GPT-5 reasoning models
+            max_tokens=GRADER_MAX_TOKENS,
+            **lm_kwargs_for(GRADER_MODEL),
         )
-    return agent_factory
-
-
-def _create_metric_with_capture(metric_fn, predictions_dict: dict):
-    """Create metric wrapper that captures predictions during evaluation."""
-    def metric_with_capture(example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
-        score = metric_fn(example, pred, trace)
-        predictions_dict[example.problem] = pred
-        return score
-    return metric_with_capture
-
-
-def _extract_predictions(predictions_dict: dict, examples: list) -> list:
-    """Extract predictions in correct order, handling missing ones."""
-    predictions = []
-    for i, ex in enumerate(examples):
-        pred = predictions_dict.get(ex.problem)
-        if pred is None:
-            print(f"⚠️ Missing prediction for example {i}, creating placeholder")
-            pred = dspy.Prediction(answer="ERROR", report="ERROR")
-            pred.metrics = {"accuracy": 0.0, "elapsed_seconds": 0, "total_cost_usd": 0}
-        predictions.append(pred)
-    return predictions
-
+        self.judge = dspy.ChainOfThought(BrowseCompJudge)
+        
+        # Initialize reflection LM for GEPA optimization if needed
+        if args.optimize:
+            self.reflection_lm = dspy.LM(
+                model=OPTIMIZER_MODEL,
+                temperature=1.0,  # Higher temp for creative prompt mutations
+                max_tokens=OPTIMIZER_MAX_TOKENS,
+                **lm_kwargs_for(OPTIMIZER_MODEL),
+            )
+    
+    def calculate_lm_cost(self, usage: dict) -> float:
+        """Calculate LM cost with accurate input/output/cached token pricing."""
+        total_cost = 0.0
+        
+        for model_name, stats in usage.items():
+            pricing = LM_PRICING.get(model_name, {})
+            if not pricing:
+                logger.warning(f"No pricing configured for model: {model_name}")
+                continue
+            
+            prompt_tokens = stats.get("prompt_tokens", 0)
+            completion_tokens = stats.get("completion_tokens", 0)
+            prompt_details = stats.get("prompt_tokens_details", {})
+            cached_tokens = prompt_details.get("cached_tokens", 0)
+            non_cached_input = prompt_tokens - cached_tokens
+            
+            input_cost = (non_cached_input / 1000.0) * pricing.get("input", 0.0)
+            cached_cost = (cached_tokens / 1000.0) * pricing.get("cached_input", pricing.get("input", 0.0))
+            output_cost = (completion_tokens / 1000.0) * pricing.get("output", 0.0)
+            
+            total_cost += input_cost + cached_cost + output_cost
+        
+        return total_cost
+    
+    def judge_prediction(self, example: dspy.Example, pred: dspy.Prediction) -> float:
+        """Judge single prediction using initialized grader LM."""
+        try:
+            with dspy.context(lm=self.grader_lm):
+                result = self.judge(
+                    question=example.problem,
+                    report=pred.report,
+                    correct_answer=example.answer
+                )
+            return 1.0 if result.is_correct else 0.0
+        except Exception as e:
+            logger.error(f"Evaluation error: {e}")
+            return 0.0
+    
+    def calculate_metrics(self, example: dspy.Example, pred: dspy.Prediction) -> dict:
+        """Calculate all metrics (accuracy, cost, time) for a prediction."""
+        accuracy = self.judge_prediction(example, pred)
+        usage = pred.get_lm_usage() or {}
+        lm_cost = self.calculate_lm_cost(usage)
+        web_cost = pred.websearch_calls * WEBSEARCH_COST_PER_CALL_USD
+        elapsed = pred.elapsed_seconds
+        total_cost = lm_cost + web_cost
+        
+        return {
+            "accuracy": accuracy,
+            "elapsed_seconds": elapsed,
+            "total_cost_usd": total_cost,
+            "lm_cost_usd": lm_cost,
+            "web_cost_usd": web_cost,
+            "websearch_calls": pred.websearch_calls,
+            "lm_usage": usage,
+            "efficiency_temp": accuracy / (max(1e-6, elapsed) * max(1e-6, total_cost)) if accuracy > 0 else 0.0,
+        }
+    
+    def accuracy_metric(self, example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
+        """DSPy metric: returns accuracy only."""
+        return self.judge_prediction(example, pred)
+    
+    def efficiency_metric(self, example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
+        """DSPy metric: returns accuracy, stores full metrics in prediction."""
+        metrics = self.calculate_metrics(example, pred)
+        pred.metrics = metrics
+        return metrics["accuracy"]
+    
+    def optimize_with_gepa(self, program: BrowseCompProgram, train: list) -> BrowseCompProgram:
+        """Run GEPA optimization on program."""
+        metric_fn = self.efficiency_metric if self.args.metric == "efficiency" else self.accuracy_metric
+        
+        optimizer = GEPA(
+            metric=metric_fn,
+            reflection_lm=self.reflection_lm,
+            auto='medium',
+            max_full_evals=self.args.optimize_steps,
+            num_threads=self.args.num_threads,
+            track_stats=True,
+            track_best_outputs=True,
+            candidate_selection_strategy='pareto',
+            use_merge=True,
+        )
+        
+        return optimizer.compile(student=program, trainset=train)
+    
+    def run(self, program: BrowseCompProgram, examples: list) -> tuple:
+        """Run evaluation and return (result, predictions)."""
+        predictions_dict = {}
+        metric_fn = self.efficiency_metric if self.args.metric == "efficiency" else self.accuracy_metric
+        
+        def metric_with_capture(example, pred, trace=None):
+            score = metric_fn(example, pred, trace)
+            predictions_dict[example.problem] = pred
+            return score
+        
+        evaluator = dspy.Evaluate(
+            devset=examples,
+            metric=metric_with_capture,
+            num_threads=self.args.num_threads,
+            display_progress=True,
+            display_table=5,
+            max_errors=10,
+        )
+        
+        result = evaluator(program)
+        predictions = self._extract_predictions(predictions_dict, examples)
+        return result, predictions
+    
+    def _extract_predictions(self, predictions_dict: dict, examples: list) -> list:
+        """Extract predictions in correct order, handling missing ones."""
+        predictions = []
+        for i, ex in enumerate(examples):
+            pred = predictions_dict.get(ex.problem)
+            if pred is None:
+                print(f"⚠️ Missing prediction for example {i}, creating placeholder")
+                pred = dspy.Prediction(answer="ERROR", report="ERROR")
+                pred.metrics = {"accuracy": 0.0, "elapsed_seconds": 0, "total_cost_usd": 0}
+            predictions.append(pred)
+        return predictions
 
 def _parse_args():
     parser = create_model_cli_parser("Run BrowseComp evaluation", include_list=True)
@@ -280,71 +285,42 @@ def main() -> None:
     
     dspy.settings.configure(track_usage=True)
     
-    agent_factory = _create_agent_factory(config)
-    metric_fn = efficiency_accuracy_metric if args.metric == "efficiency" else browsecomp_metric
+    # Initialize evaluator with grader and optimizer LMs
+    evaluator = BrowseCompEvaluator(config, args)
     
+    # Load dataset
     dataset = BrowseCompDataset(num_examples=args.num_examples)
     examples = dataset.load()
     print(f"📚 Loaded {len(examples)} examples")
+
+    # Create agent program
+    program = BrowseCompProgram(
+        big_model=config.big,
+        small_model=config.small,
+        big_max_tokens=config.big_max_tokens,
+        small_max_tokens=config.small_max_tokens,
+    )
 
     # GEPA optimization if requested
     if args.optimize:
         print(f"\n🧬 GEPA Optimization ({args.optimize_steps} steps)")
         print(f"🤖 Using reflection model: {OPTIMIZER_MODEL}")
-        split_idx = int(len(examples) * args.train_size)
-        train, test = examples[:split_idx], examples[split_idx:]
+        train, test = dataset.split(train_size=args.train_size)
         print(f"📊 Split: {len(train)} train, {len(test)} test")
         
-        # Configure dedicated reflection LM for GEPA (analyzes traces and proposes new prompts)
-        reflection_lm = dspy.LM(
-            model=OPTIMIZER_MODEL,
-            temperature=1.0,  # Higher temp for creative prompt mutations
-            max_tokens=OPTIMIZER_MAX_TOKENS,
-            **lm_kwargs_for(OPTIMIZER_MODEL),
-        )
-        
-        program = BrowseCompProgram(agent_factory)
-        optimizer = GEPA(
-            metric=metric_fn,
-            reflection_lm=reflection_lm,
-            auto='medium',  # Budget preset: light/medium/heavy
-            max_full_evals=args.optimize_steps,  # Override auto budget
-            num_threads=args.num_threads,  # Parallel evaluation
-            track_stats=True,  # Track optimization metrics
-            track_best_outputs=True,  # Save best predictions
-            candidate_selection_strategy='pareto',  # Multi-objective optimization
-            use_merge=True,  # Merge successful prompt patterns
-        )
-        optimized = optimizer.compile(student=program, trainset=train)
+        program = evaluator.optimize_with_gepa(program, train)
         
         print(f"\n✨ Optimization complete!")
-        print(f"📝 Optimized {len(list(optimized.named_predictors()))} predictor(s)")
-        for name, pred in optimized.named_predictors():
+        print(f"📝 Optimized {len(list(program.named_predictors()))} predictor(s)")
+        for name, pred in program.named_predictors():
             instr = getattr(pred.signature, 'instructions', '<no instructions>')
             print(f"  • {name}: {instr[:80]}..." if len(instr) > 80 else f"  • {name}: {instr}")
         
-        program = optimized
         examples = test  # Evaluate on test set
-    else:
-        program = BrowseCompProgram(agent_factory)
-
-    # Capture predictions during evaluation
-    predictions_dict = {}
-    metric_with_capture = _create_metric_with_capture(metric_fn, predictions_dict)
 
     # Run evaluation
     print(f"🚀 Evaluating...")
-    evaluator = dspy.Evaluate(
-        devset=examples,
-        metric=metric_with_capture,
-        num_threads=args.num_threads,
-        display_progress=True,
-        display_table=5,
-        max_errors=10,
-    )
-    
-    result = evaluator(program)
-    predictions = _extract_predictions(predictions_dict, examples)
+    result, predictions = evaluator.run(program, examples)
     
     save_experiment_results(
         result=result,

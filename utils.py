@@ -500,6 +500,37 @@ def analyze_experiments(experiments_dir="experiments"):
     return analyzer
 
 
+def create_isolated_workspace(base_dir: str = "memory_eval") -> Path:
+    """Create unique workspace directory for parallel-safe operations.
+    
+    Args:
+        base_dir: Base directory for workspaces (default: "memory_eval")
+        
+    Returns:
+        Path to created workspace directory
+    """
+    import uuid
+    work_dir = Path(base_dir) / str(uuid.uuid4())[:8]
+    work_dir.mkdir(parents=True, exist_ok=True)
+    return work_dir
+
+
+def cleanup_workspace(work_dir: Path) -> None:
+    """Best-effort cleanup of workspace directory.
+    
+    Args:
+        work_dir: Path to workspace to clean up
+        
+    Note:
+        Failures are silently ignored to prevent blocking evaluation.
+    """
+    import shutil
+    try:
+        shutil.rmtree(work_dir)
+    except Exception:
+        pass  # Don't fail evaluation if cleanup fails
+
+
 def start_cleanup_watchdog(grace_period_seconds: int = 30) -> None:
     """Start a watchdog timer that forces exit if cleanup hangs.
     

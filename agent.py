@@ -146,7 +146,6 @@ class Agent(dspy.Module):
         self.lead_agent = dspy.ReAct(
             AgentSignature,
             tools=list(self.lead_agent_tools.values()),
-            max_iters=3,
         )
 
     @trace_call("agent.forward")
