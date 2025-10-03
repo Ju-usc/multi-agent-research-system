@@ -157,9 +157,9 @@ WEBSEARCH_COST_PER_CALL_USD = float(os.getenv("WEBSEARCH_COST_PER_CALL_USD", "0.
 # Note: Even when using free tier, we track AS IF paying for meaningful cost comparisons
 LM_PRICING: Final[dict[str, dict[str, float]]] = {
     "openai/gpt-5-mini": {
-        "input": 0.000125,       # $0.125 per 1M tokens
-        "output": 0.001,         # $1.00 per 1M tokens
-        "cached_input": 0.0000125 # $0.0125 per 1M (90% discount)
+        "input": 0.00025,        # $0.250 per 1M tokens
+        "output": 0.002,         # $2.000 per 1M tokens
+        "cached_input": 0.000025 # $0.025 per 1M (90% discount)
     },
     "openai/gpt-5": {
         "input": 0.00125,        # $1.25 per 1M
