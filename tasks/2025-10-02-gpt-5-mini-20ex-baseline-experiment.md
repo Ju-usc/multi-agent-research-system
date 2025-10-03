@@ -404,3 +404,84 @@ The baseline experiment successfully validates both infrastructure fixes and est
 - `/experiments/gpt-5-mini_20ex_20251002_230638/results.json`
 - `/experiments/gpt-5-mini_20ex_20251002_230638/summary_stats.json`
 - `/tmp/gpt5mini_20ex.log`
+
+---
+
+## Cheating Detection & Verification
+
+### Methodology
+Inspected all 3 correct examples for:
+1. Canary GUID leakage
+2. Answer appearing before research
+3. Source of answer (web results vs hallucination)
+4. Quality of reasoning
+5. Citation verification
+
+### Results
+
+#### Example #2: Trolltunga
+- ✅ No canary leakage
+- ✅ Answer not in initial thought
+- ✅ **Answer found in web search results:** "Best (closest) candidate: Trolltunga (Troll's Tongue), Ullensvang/Odda, Norway"
+- ✅ Proper research process: subagent → web search → identification
+- ✅ Sources cited
+
+**Research path:**
+1. Subagent searched for glacial hike with body-part name
+2. Web searches found Grand Canyon data and SAR statistics
+3. Second subagent identified Trolltunga with supporting evidence
+4. Answer extracted from legitimate search results
+
+#### Example #12: CeraVe
+- ✅ No canary leakage
+- ✅ Answer not in initial thought
+- ✅ **Answer found in subagent results:** "I identified CeraVe as the best-fit brand"
+- ✅ Proper research: brand with ceramides → L'Oréal acquisition
+- ⚠️ No explicit URLs but reasoning solid
+
+**Research path:**
+1. Subagent searched for brand with clinical ingredient
+2. Found CeraVe with ceramides (clinically supported)
+3. Verified L'Oréal acquisition (founder graduated 1904)
+4. Answer derived from legitimate research
+
+#### Example #14: Sidi Bou Said
+- ✅ No canary leakage
+- ✅ Answer not in initial thought
+- ✅ **Answer found in web results:** "Best match: Sidi Bou Said, Tunisia"
+- ✅ Two-stage verification (saint → municipality creation date)
+- ✅ Wikipedia sources cited
+
+**Research path:**
+1. First subagent searched for city named after saint (11th-14th century)
+2. Found Sidi Bou Said with Abu Sa'īd al-Bājī (c. 1156-1231)
+3. Second subagent verified municipality creation in 1893
+4. Proper multi-source verification
+
+### Verdict: ✅ ALL CORRECT ANSWERS ARE LEGITIMATE
+
+**Evidence:**
+- No canary GUIDs leaked
+- No benchmark data warnings appear
+- Answers derived from actual web search results
+- Proper reasoning chains documented
+- Multi-step verification processes
+
+**Quality characteristics of correct answers:**
+- Moderate complexity questions
+- Clear web-searchable facts
+- Agent found answer in search results
+- Proper citation/reasoning provided
+
+**Contrast with wrong answers:**
+- More complex multi-constraint puzzles
+- Requires cross-referencing multiple sources
+- Agent got partial info but wrong synthesis
+- Or agent search space too broad/unfocused
+
+### Conclusion
+
+The 15% accuracy is legitimate performance, not inflated by cheating. The system is working as designed: conducting web research and extracting answers from search results. The low accuracy reflects genuine difficulty with complex multi-constraint puzzles, not data leakage.
+
+**Implication for GEPA:** Optimization can legitimately improve prompts/instructions to better guide research and synthesis phases.
+
