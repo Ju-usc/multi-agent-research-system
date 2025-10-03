@@ -16,7 +16,7 @@ from dspy.teleprompt import GEPA
 
 from agent import Agent
 from config import (
-    LM_COST_PER_1K_TOKENS,
+    LM_PRICING,
     WEBSEARCH_COST_PER_CALL_USD,
     TEMPERATURE,
     GRADER_MODEL,
@@ -133,16 +133,39 @@ def browsecomp_metric(example: dspy.Example, pred: dspy.Prediction, trace=None) 
 
 
 def _calculate_lm_cost(usage: dict) -> float:
-    """Calculate LM cost from usage stats with provider-agnostic token counting."""
-    lm_cost = 0.0
-    for model, stats in usage.items():
-        # Different providers return different formats
-        # This fallback handles: OpenAI, LiteLLM, and others
-        tokens = stats.get("total_tokens") or (
-            stats.get("prompt_tokens", 0) + stats.get("completion_tokens", 0)
-        )
-        lm_cost += (tokens / 1000.0) * LM_COST_PER_1K_TOKENS.get(model, 0.0)
-    return lm_cost
+    """Calculate LM cost with accurate input/output/cached token pricing.
+    
+    Uses actual model pricing (not free tier) for meaningful efficiency metrics.
+    Properly accounts for:
+    - Different input vs output token prices
+    - Cached token discounts (e.g., 90% off for OpenAI cached inputs)
+    - Provider-specific token tracking formats
+    """
+    total_cost = 0.0
+    
+    for model_name, stats in usage.items():
+        pricing = LM_PRICING.get(model_name, {})
+        if not pricing:
+            logger.warning(f"No pricing configured for model: {model_name}")
+            continue
+        
+        # Extract token counts
+        prompt_tokens = stats.get("prompt_tokens", 0)
+        completion_tokens = stats.get("completion_tokens", 0)
+        
+        # Extract cached tokens if available (OpenAI and some providers track this)
+        prompt_details = stats.get("prompt_tokens_details", {})
+        cached_tokens = prompt_details.get("cached_tokens", 0)
+        non_cached_input = prompt_tokens - cached_tokens
+        
+        # Calculate costs with proper pricing for each token type
+        input_cost = (non_cached_input / 1000.0) * pricing.get("input", 0.0)
+        cached_cost = (cached_tokens / 1000.0) * pricing.get("cached_input", pricing.get("input", 0.0))
+        output_cost = (completion_tokens / 1000.0) * pricing.get("output", 0.0)
+        
+        total_cost += input_cost + cached_cost + output_cost
+    
+    return total_cost
 
 
 def efficiency_accuracy_metric(example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:

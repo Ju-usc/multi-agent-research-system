@@ -153,24 +153,32 @@ OPTIMIZER_MAX_TOKENS: Final[int] = 32000  # Large budget for prompt refinement
 
 WEBSEARCH_COST_PER_CALL_USD = float(os.getenv("WEBSEARCH_COST_PER_CALL_USD", "0.005"))
 
-def _load_lm_costs() -> dict[str, float]:
-    raw = os.getenv("LM_COST_PER_1K_TOKENS_JSON")
-    if not raw:
-        return {}
-    try:
-        parsed = json.loads(raw)
-    except (ValueError, TypeError):
-        return {}
-
-    if not isinstance(parsed, dict):
-        return {}
-
-    costs: dict[str, float] = {}
-    for key, value in parsed.items():
-        try:
-            costs[str(key)] = float(value)
-        except (TypeError, ValueError):
-            continue
-    return costs
-
-LM_COST_PER_1K_TOKENS = _load_lm_costs()
+# Model pricing (per 1K tokens) - uses actual pricing for efficiency metrics
+# Note: Even when using free tier, we track AS IF paying for meaningful cost comparisons
+LM_PRICING: Final[dict[str, dict[str, float]]] = {
+    "openai/gpt-5-mini": {
+        "input": 0.000125,       # $0.125 per 1M tokens
+        "output": 0.001,         # $1.00 per 1M tokens
+        "cached_input": 0.0000125 # $0.0125 per 1M (90% discount)
+    },
+    "openai/gpt-5": {
+        "input": 0.00125,        # $1.25 per 1M
+        "output": 0.01,          # $10.00 per 1M
+        "cached_input": 0.000125 # $0.125 per 1M
+    },
+    "openrouter/deepseek/deepseek-chat-v3.1:free": {
+        "input": 0.00027,        # $0.27 per 1M (actual DeepSeek pricing)
+        "output": 0.0011,        # $1.10 per 1M
+        "cached_input": 0.00007  # $0.07 per 1M
+    },
+    "openrouter/moonshotai/kimi-k2:free": {
+        "input": 0.0006,         # $0.60 per 1M (actual Kimi pricing)
+        "output": 0.0025,        # $2.50 per 1M
+        "cached_input": 0.00015  # $0.15 per 1M
+    },
+    "openrouter/qwen/qwen3-coder:free": {
+        "input": 0.00022,        # $0.22 per 1M (actual Qwen pricing)
+        "output": 0.00095,       # $0.95 per 1M
+        "cached_input": 0.00022  # No separate cache pricing
+    }
+}
