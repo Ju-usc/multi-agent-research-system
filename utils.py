@@ -496,3 +496,29 @@ def analyze_experiments(experiments_dir="experiments"):
     print("- Real agent execution should take 30-120s and make 5-20 web search calls")
     
     return analyzer
+
+
+def start_cleanup_watchdog(grace_period_seconds: int = 30) -> None:
+    """Start a watchdog timer that forces exit if cleanup hangs.
+    
+    This prevents the process from hanging indefinitely during executor cleanup
+    (e.g., DSPy's ParallelExecutor shutdown interacting with LiteLLM callbacks).
+    
+    Call this AFTER all important results are saved. The watchdog runs in a daemon
+    thread and will force-exit the process if normal cleanup takes too long.
+    
+    Args:
+        grace_period_seconds: How long to wait before forcing exit (default: 30s)
+    """
+    import threading
+    import time
+    import os
+    
+    def force_exit():
+        time.sleep(grace_period_seconds)
+        print(f"\n⚠️  Cleanup took >{grace_period_seconds}s, forcing exit")
+        print("   (Results already saved - this is just stuck cleanup)")
+        os._exit(0)  # Hard exit, bypass hanging cleanup
+    
+    watchdog = threading.Thread(target=force_exit, daemon=True)
+    watchdog.start()

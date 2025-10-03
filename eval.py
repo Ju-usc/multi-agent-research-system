@@ -13,6 +13,7 @@ from typing import Any, Callable, Optional
 import dspy
 from dspy.adapters.chat_adapter import ChatAdapter
 from dspy.teleprompt import GEPA
+import logging
 
 from agent import Agent
 from config import (
@@ -28,8 +29,9 @@ from config import (
 )
 from dataset import BrowseCompDataset
 from logging_config import configure_logging
-from utils import create_model_cli_parser, iter_model_presets, save_experiment_results
+from utils import create_model_cli_parser, iter_model_presets, save_experiment_results, start_cleanup_watchdog
 
+logger = logging.getLogger(__name__)
 
 class BrowseCompJudge(dspy.Signature):
     """
@@ -352,6 +354,10 @@ def main() -> None:
         args=args,
         output_dir="experiments"
     )
+    
+    # Start watchdog to prevent hanging during cleanup
+    # (DSPy's executor shutdown can hang when LiteLLM callbacks are pending)
+    start_cleanup_watchdog(grace_period_seconds=30)
 
     print("\n" + "=" * 50)
     print(f"📈 {args.metric.title()} Score: {result.score:.4f}")
