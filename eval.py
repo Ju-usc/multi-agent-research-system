@@ -19,6 +19,10 @@ from config import (
     LM_COST_PER_1K_TOKENS,
     WEBSEARCH_COST_PER_CALL_USD,
     TEMPERATURE,
+    GRADER_MODEL,
+    GRADER_MAX_TOKENS,
+    OPTIMIZER_MODEL,
+    OPTIMIZER_MAX_TOKENS,
     lm_kwargs_for,
     resolve_model_config,
 )
@@ -95,6 +99,7 @@ class BrowseCompProgram(dspy.Module):
 def browsecomp_metric(example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
     """
     DSPy metric function for BrowseComp evaluation.
+    Uses dedicated grader model (GPT-5) for consistent evaluation across all experiments.
     
     Args:
         example: DSPy Example with 'problem' and 'answer' fields
@@ -104,14 +109,23 @@ def browsecomp_metric(example: dspy.Example, pred: dspy.Prediction, trace=None) 
     Returns:
         1.0 if correct, 0.0 if incorrect
     """
+    # Use dedicated grader LM for consistent evaluation
+    grader_lm = dspy.LM(
+        model=GRADER_MODEL,
+        temperature=1.0,  # Required for GPT-5 reasoning models
+        max_tokens=GRADER_MAX_TOKENS,
+        **lm_kwargs_for(GRADER_MODEL),
+    )
+    
     judge = dspy.ChainOfThought(BrowseCompJudge)
     
     try:
-        result = judge(
-            question=example.problem,
-            report=pred.report,
-            correct_answer=example.answer
-        )
+        with dspy.context(lm=grader_lm):
+            result = judge(
+                question=example.problem,
+                report=pred.report,
+                correct_answer=example.answer
+            )
         return 1.0 if result.is_correct else 0.0
     except Exception as e:
         print(f"⚠️ Evaluation error: {e}")
@@ -222,6 +236,8 @@ def main() -> None:
 
     print("🔍 BrowseComp Evaluation")
     print("=" * 50)
+    print(f"⚖️  Grader model: {GRADER_MODEL} (fixed for consistency)")
+    print("=" * 50)
 
     # Configure DSPy and prepare agent
     config = resolve_model_config(args.model, args.model_big, args.model_small)
@@ -249,12 +265,31 @@ def main() -> None:
     # GEPA optimization if requested
     if args.optimize:
         print(f"\n🧬 GEPA Optimization ({args.optimize_steps} steps)")
+        print(f"🤖 Using reflection model: {OPTIMIZER_MODEL}")
         split_idx = int(len(examples) * args.train_size)
         train, test = examples[:split_idx], examples[split_idx:]
         print(f"📊 Split: {len(train)} train, {len(test)} test")
         
+        # Configure dedicated reflection LM for GEPA (analyzes traces and proposes new prompts)
+        reflection_lm = dspy.LM(
+            model=OPTIMIZER_MODEL,
+            temperature=1.0,  # Higher temp for creative prompt mutations
+            max_tokens=OPTIMIZER_MAX_TOKENS,
+            **lm_kwargs_for(OPTIMIZER_MODEL),
+        )
+        
         program = BrowseCompProgram(agent_factory)
-        optimizer = GEPA(metric=metric_fn, steps=args.optimize_steps)
+        optimizer = GEPA(
+            metric=metric_fn,
+            reflection_lm=reflection_lm,
+            auto='medium',  # Budget preset: light/medium/heavy
+            max_full_evals=args.optimize_steps,  # Override auto budget
+            num_threads=args.num_threads,  # Parallel evaluation
+            track_stats=True,  # Track optimization metrics
+            track_best_outputs=True,  # Save best predictions
+            candidate_selection_strategy='pareto',  # Multi-objective optimization
+            use_merge=True,  # Merge successful prompt patterns
+        )
         optimized = optimizer.compile(student=program, trainset=train)
         
         print(f"\n✨ Optimization complete!")

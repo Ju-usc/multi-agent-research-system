@@ -140,6 +140,15 @@ TEMPERATURE = 1.0
 # Max token limits are derived from the selected preset above.
 # Do not override them here; models like OpenRouter free tiers enforce 8–16k.
 
+# ========== EVALUATION MODELS (Fixed for experimental consistency) ==========
+# These models are used for evaluation/optimization across all experiments
+# to eliminate judge/optimizer variance as a confounding variable.
+GRADER_MODEL: Final[str] = "openai/gpt-5"  # Judges answer correctness
+GRADER_MAX_TOKENS: Final[int] = 16000  # Large budget for reasoning chains
+
+OPTIMIZER_MODEL: Final[str] = "openai/gpt-5"  # GEPA prompt optimization
+OPTIMIZER_MAX_TOKENS: Final[int] = 32000  # Large budget for prompt refinement
+
 # ========== COST CONFIGURATION ==========
 
 WEBSEARCH_COST_PER_CALL_USD = float(os.getenv("WEBSEARCH_COST_PER_CALL_USD", "0.005"))

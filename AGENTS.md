@@ -161,7 +161,7 @@ The example stores the run at `logs/trace-ai-collab.log`. Pre-create directories
 
 ---
 
-## Agentic Coding Workflow MODE (SHOULD BE ASKED FOR BY USER OR ASKED FOR PROACTIVELY IF RELEVANT)
+## Agentic Coding Workflow Guidlines
 
 0. Tasks
 
@@ -171,7 +171,7 @@ The example stores the run at `logs/trace-ai-collab.log`. Pre-create directories
 1. Research
 
 - Find existing patterns in this codebase
-- Search internet, mcp tools if relevant (nia mcp)
+- Search internet, mcp tools if relevant (PREFER using nia tools than relying only on generic web search)
 - Start by asking follow up questions to set the direction of research
 - Report findings in research.md file
 
