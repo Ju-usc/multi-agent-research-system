@@ -43,11 +43,3 @@ def test_todo_list_round_trip():
     assert read_response["count"] == 1
     assert read_response["todos"][0]["content"] == "Sketch experiment plan"
 
-
-def test_subagent_parallel_run_handles_empty():
-    from tools import SubagentTool
-
-    tool = SubagentTool(tools=[], lm=None, adapter=None)
-
-    summary = json.loads(tool.parallel_run([]))
-    assert summary == {"successes": [], "failures": []}

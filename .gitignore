@@ -12,12 +12,12 @@ __pycache__/
 
 # OS
 .DS_Store
-memory/
 .cache/
 
 .vscode/
 .codex/
 .cursor/
+.factory/
 
 docs/
 
@@ -25,3 +25,6 @@ logs/
 
 tasks/
 memory/
+memory_eval/
+memory_test/
+experiments/

@@ -12,7 +12,7 @@ multi-agent-research-system/
 ├── models.py                   # Pydantic models and DSPy signatures for the multi-agent system
 ├── tools.py                    # Class-based tool implementations with async support
 ├── utils.py                    # Helper functions including prediction_to_json and Langfuse setup
-├── eval.py                     # BrowseComp evaluation framework with DSPy integration and LLM-as-judge metrics
+├── eval.py                     # BrowseComp evaluation with efficiency metrics and GEPA optimization
 ├── dataset.py                  # BrowseComp dataset loader with XOR decryption and DSPy Example creation
 ├── README.md                   # Project overview and basic usage instructions
 ├── CLAUDE.md                   # This file - detailed design specs and guidelines for Claude Code
@@ -41,7 +41,7 @@ multi-agent-research-system/
 - **models.py**: All Pydantic models (SubagentTask, SubagentResult, Memory) and DSPy signatures in one place
 - **tools.py**: Class-based tool implementations (WebSearchTool, MemoryTool) with async support
 - **utils.py**: Helper functions including prediction_to_json and Langfuse observability setup
-- **eval.py**: Evaluation pipeline that wraps LeadAgent in DSPy's Evaluate framework, implements answer correctness metrics, and supports multi-threaded evaluation
+- **eval.py**: Evaluation with accuracy/efficiency metrics, GEPA optimization, and DSPy's built-in result saving
 - **dataset.py**: Handles BrowseComp dataset operations including downloading, XOR decryption with canary checking, and conversion to DSPy Examples
 
 ## Design Principles
@@ -188,6 +188,8 @@ The codebase has been refactored from a monolithic 611-line agent.py into focuse
 - Run files: `uv run python <file.py>`
 - Run tests: `uv run pytest`
 - Run specific test file: `uv run pytest tests/test_agent_units.py -v`
+- Run evaluation: `uv run python eval.py --num-examples 5`
+- Run with GEPA optimization: `uv run python eval.py --optimize --optimize-steps 10`
 - Install deps: `uv sync`
 
 ## Testing

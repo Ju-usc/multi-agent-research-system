@@ -5,6 +5,7 @@ Logging configuration is handled in logging_config.py to avoid side effects.
 """
 
 import os
+import json
 from dataclasses import dataclass
 from typing import Final
 
@@ -138,3 +139,46 @@ SMALL_MODEL_MAX_TOKENS = _DEFAULT_PRESET.small_max_tokens
 TEMPERATURE = 1.0
 # Max token limits are derived from the selected preset above.
 # Do not override them here; models like OpenRouter free tiers enforce 8–16k.
+
+# ========== EVALUATION MODELS (Fixed for experimental consistency) ==========
+# These models are used for evaluation/optimization across all experiments
+# to eliminate judge/optimizer variance as a confounding variable.
+GRADER_MODEL: Final[str] = "openai/gpt-5"  # Judges answer correctness
+GRADER_MAX_TOKENS: Final[int] = 16000  # Large budget for reasoning chains
+
+OPTIMIZER_MODEL: Final[str] = "openai/gpt-5"  # GEPA prompt optimization
+OPTIMIZER_MAX_TOKENS: Final[int] = 32000  # Large budget for prompt refinement
+
+# ========== COST CONFIGURATION ==========
+
+WEBSEARCH_COST_PER_CALL_USD = float(os.getenv("WEBSEARCH_COST_PER_CALL_USD", "0.005"))
+
+# Model pricing (per 1K tokens) - uses actual pricing for efficiency metrics
+# Note: Even when using free tier, we track AS IF paying for meaningful cost comparisons
+LM_PRICING: Final[dict[str, dict[str, float]]] = {
+    "openai/gpt-5-mini": {
+        "input": 0.00025,        # $0.250 per 1M tokens
+        "output": 0.002,         # $2.000 per 1M tokens
+        "cached_input": 0.000025 # $0.025 per 1M (90% discount)
+    },
+    "openai/gpt-5": {
+        "input": 0.00125,        # $1.25 per 1M
+        "output": 0.01,          # $10.00 per 1M
+        "cached_input": 0.000125 # $0.125 per 1M
+    },
+    "openrouter/deepseek/deepseek-chat-v3.1:free": {
+        "input": 0.00027,        # $0.27 per 1M (actual DeepSeek pricing)
+        "output": 0.0011,        # $1.10 per 1M
+        "cached_input": 0.00007  # $0.07 per 1M
+    },
+    "openrouter/moonshotai/kimi-k2:free": {
+        "input": 0.0006,         # $0.60 per 1M (actual Kimi pricing)
+        "output": 0.0025,        # $2.50 per 1M
+        "cached_input": 0.00015  # $0.15 per 1M
+    },
+    "openrouter/qwen/qwen3-coder:free": {
+        "input": 0.00022,        # $0.22 per 1M (actual Qwen pricing)
+        "output": 0.00095,       # $0.95 per 1M
+        "cached_input": 0.00022  # No separate cache pricing
+    }
+}

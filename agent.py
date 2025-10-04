@@ -1,4 +1,3 @@
-import argparse
 import logging
 
 import dspy
@@ -16,7 +15,7 @@ from config import (
 )
 from tools import WebSearchTool, FileSystemTool, TodoListTool, SubagentTool, ParallelToolCall
 from logging_config import trace_call, configure_logging
-from utils import setup_langfuse
+from utils import create_model_cli_parser, setup_langfuse
 from langfuse import observe
 
 
@@ -44,12 +43,18 @@ class Agent(dspy.Module):
         temperature: float = TEMPERATURE,
         big_max_tokens: int = BIG_MODEL_MAX_TOKENS,
         small_max_tokens: int = SMALL_MODEL_MAX_TOKENS,
+        work_dir: str | None = None,
     ) -> None:
         super().__init__()
         # Shared adapter for structured outputs
         # Core tools
         self.web_search_tool = WebSearchTool()
-        self.fs_tool = FileSystemTool()
+        
+        # Use isolated work directory or default to shared "memory"
+        # Enables parallel evaluation without filesystem conflicts
+        if work_dir is None:
+            work_dir = "memory"  # Backward compatible default
+        self.fs_tool = FileSystemTool(root=work_dir)
         self.todo_list_tool = TodoListTool()
         self.fs = self.fs_tool  # provide backward-compatible alias
 
@@ -80,7 +85,7 @@ class Agent(dspy.Module):
             "filesystem_write": dspy.Tool(
                 self.fs_tool.write,
                 name="filesystem_write",
-                desc="Write content to specific path in the filesystem. Drop the leading 'memory/' prefix in paths.",
+                desc="Write content to path relative to workspace root. Use simple relative paths like 'results/data.json', NOT 'memory/results/data.json'.",
             ),
         }
 
@@ -103,12 +108,12 @@ class Agent(dspy.Module):
             "filesystem_read": dspy.Tool(
                 self.fs_tool.read,
                 name="filesystem_read",
-                desc="Read artifacts from subagents under memory/. Drop the leading 'memory/' prefix in paths.",
+                desc="Read artifacts using paths relative to workspace root (e.g., 'results/data.json').",
             ),
             "filesystem_tree": dspy.Tool(
                 self.fs_tool.tree,
                 name="filesystem_tree",
-                desc="List the current memory tree to see available artifacts from subagents.",
+                desc="List workspace tree to see available artifacts. Returns paths relative to workspace root.",
             ),
             "todo_list_read": dspy.Tool(
                 self.todo_list_tool.read,
@@ -120,18 +125,19 @@ class Agent(dspy.Module):
                 name="todo_list_write",
                 desc="Write the To-Do list. Useful when you need to plan something. You should always try to update the To-Do list status.",
             ),
-            "subagent_parallel_run": dspy.Tool(
-                self.subagent_tool.parallel_run,
-                name="subagent_parallel_run",
-                desc="Kick off several subagents at once; each runs web search and writes back findings.",
+            "subagent_run": dspy.Tool(
+                self.subagent_tool,
+                name="subagent_run",
+                desc="Execute a single subagent research task. Returns JSON with summary, detail, and artifact_path. For parallel execution of multiple subagents, use parallel_tool_call.",
             ),
         }
-
+        
+        # Add parallel_tool_call for lead agent to enable parallel subagent execution
         lead_parallel_tool = ParallelToolCall(self.lead_agent_tools, num_threads=4)
         self.lead_agent_tools["parallel_tool_call"] = dspy.Tool(
             lead_parallel_tool,
             name="parallel_tool_call",
-            desc="Run multiple lead tools in parallel with a single call.",
+            desc="Run multiple lead agent tools in parallel. Useful for spawning multiple subagents concurrently.",
         )
 
 
@@ -140,7 +146,6 @@ class Agent(dspy.Module):
         self.lead_agent = dspy.ReAct(
             AgentSignature,
             tools=list(self.lead_agent_tools.values()),
-            max_iters=3,
         )
 
     @trace_call("agent.forward")
@@ -148,19 +153,13 @@ class Agent(dspy.Module):
     def forward(self, query: str) -> dspy.Prediction:
         return self.lead_agent(query=query)
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the single-loop research agent.")
-    parser.add_argument(
-        "--model",
-        choices=sorted(MODEL_PRESETS.keys()),
-        help="Model preset to use for both big and small slots.",
-    )
-    parser.add_argument("--model-big", dest="model_big", help="Override the big model identifier.")
-    parser.add_argument("--model-small", dest="model_small", help="Override the small model identifier.")
-    parser.add_argument(
-        "--query",
-        default="Lamine vs Doue? Be objective and keep it research short and concise DO NOT ASK ANYTHING ELSE. Try to use tools provided to you to test our system first. Yet there will be no memory artifacts as this is the first session.",
-        help="Query to run through the agent.",
+def parse_args():
+    parser = create_model_cli_parser(
+        "Run the single-loop research agent.",
+        query=(
+            "Lamine vs Doue? Be objective and keep it research short and concise DO NOT ASK ANYTHING ELSE. Try to use tools provided to you to test our system first. Yet there will be no memory artifacts as this is the first session.",
+            "Query to run through the agent.",
+        ),
     )
     return parser.parse_args()
 
