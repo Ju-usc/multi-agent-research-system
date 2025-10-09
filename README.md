@@ -25,6 +25,20 @@ A minimal multi-agent research system, built with DSPy, inspired by [Anthropic�
 3. Subagents use **web_search** and may `fs_write_report(...)`; each returns a **summary**.  
 4. Lead **reads artifacts**, updates the To-Do, and **synthesizes** the answer; iterate if gaps remain.
 
+## Evaluation philosophy
+
+The default `efficiency` metric drives **lean correctness** — right answers with minimal waste:
+
+```
+efficiency = accuracy / (time × cost)
+```
+
+This penalizes over-search (20 queries vs 5), over-decomposition (10 subagents vs 3), and slow synthesis. Wrong answers score zero regardless of speed.
+
+**GEPA optimization** discovers prompts that maximize efficiency. Patterns like "use 3-5 focused tasks" and "stop when returns diminish" emerge naturally from optimizing `accuracy / (time × cost)` — they're not hardcoded.
+
+Trade-off: optimizing for `accuracy` alone ignores cost and produces verbose reports.
+
 ## Quick CLI run
 
 Run the lead agent from the repository root.
@@ -51,6 +65,36 @@ TRACE_LOG_FILENAME=trace-ai-collab.log LOG_LEVEL=DEBUG \
 ```
 
 The example above writes `logs/trace-ai-collab.log`. Create directories ahead of time if you specify a path.
+
+## Evaluation
+
+Run BrowseComp evaluation with efficiency metrics and GEPA optimization.
+
+```bash
+# Basic evaluation
+uv run python eval.py
+
+# Custom settings
+uv run python eval.py --num-examples 20 --metric accuracy
+
+# GEPA optimization (auto train/test split)
+uv run python eval.py --optimize --optimize-steps 10
+
+# Save results
+uv run python eval.py --save-metrics results.json
+```
+
+**Metrics:**
+- `accuracy`: Binary correctness (1.0 or 0.0)
+- `efficiency`: accuracy / (time × cost) - default
+
+**Cost config** (`.env`):
+```bash
+WEBSEARCH_COST_PER_CALL_USD=0.005
+LM_COST_PER_1K_TOKENS_JSON='{"openai/gpt-4o": 0.005}'
+```
+
+See `.env.template` for full example.
 
 ## License
 
