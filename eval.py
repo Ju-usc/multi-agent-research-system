@@ -121,7 +121,11 @@ class BrowseCompEvaluator:
             )
     
     def calculate_lm_cost(self, usage: dict) -> float:
-        """Calculate LM cost with accurate input/output/cached token pricing."""
+        """Calculate LM cost with accurate input/output/cached token pricing.
+        
+        Pricing in LM_PRICING is per 1M tokens (industry standard).
+        Formula: (tokens / 1,000,000) * price_per_1M = cost in USD
+        """
         total_cost = 0.0
         
         for model_name, stats in usage.items():
@@ -136,9 +140,10 @@ class BrowseCompEvaluator:
             cached_tokens = prompt_details.get("cached_tokens", 0)
             non_cached_input = prompt_tokens - cached_tokens
             
-            input_cost = (non_cached_input / 1000.0) * pricing.get("input", 0.0)
-            cached_cost = (cached_tokens / 1000.0) * pricing.get("cached_input", pricing.get("input", 0.0))
-            output_cost = (completion_tokens / 1000.0) * pricing.get("output", 0.0)
+            # Pricing is per 1M tokens, so divide by 1,000,000
+            input_cost = (non_cached_input / 1_000_000) * pricing.get("input", 0.0)
+            cached_cost = (cached_tokens / 1_000_000) * pricing.get("cached_input", pricing.get("input", 0.0))
+            output_cost = (completion_tokens / 1_000_000) * pricing.get("output", 0.0)
             
             total_cost += input_cost + cached_cost + output_cost
         

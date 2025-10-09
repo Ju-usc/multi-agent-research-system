@@ -1,205 +1,229 @@
-import json
-import tempfile
-from pathlib import Path
+"""
+Tests for BrowseComp evaluation metrics.
+
+Tests the BrowseCompEvaluator class methods for calculating accuracy,
+efficiency, and cost metrics from agent predictions.
+"""
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import dspy
 import pytest
 
-import eval as eval_module
+from eval import BrowseCompEvaluator
+from config import WEBSEARCH_COST_PER_CALL_USD
 
 
-def test_efficiency_accuracy_metric_basic(monkeypatch):
-    """Test efficiency metric with correct answer and typical costs."""
-    monkeypatch.setattr(eval_module, "LM_COST_PER_1K_TOKENS", {"model": 0.2}, raising=False)
-    monkeypatch.setattr(eval_module, "WEBSEARCH_COST_PER_CALL_USD", 0.01, raising=False)
-    monkeypatch.setattr(
-        eval_module.dspy,
-        "ChainOfThought",
-        lambda *_, **__: lambda **__: SimpleNamespace(is_correct=True),
-        raising=False,
+@pytest.fixture
+def mock_args():
+    """Create mock args for BrowseCompEvaluator."""
+    args = SimpleNamespace(
+        metric="efficiency",
+        optimize=False,
+        num_threads=1,
     )
-
-    example = dspy.Example(problem="Q", answer="A")
-
-    class Prediction(SimpleNamespace):
-        def get_lm_usage(self):
-            return {"model": {"total_tokens": 100}}
-
-    pred = Prediction(report="A", elapsed_seconds=2.0, websearch_calls=1)
-
-    score = eval_module.efficiency_accuracy_metric(example, pred)
-
-    assert score == pytest.approx(1.0 / (2.0 * 0.03))
-    breakdown = pred.efficiency_breakdown
-    assert breakdown["accuracy"] == 1.0
-    assert breakdown["elapsed_seconds"] == pytest.approx(2.0)
-    assert breakdown["lm_cost_usd"] == pytest.approx(0.02)
-    assert breakdown["web_cost_usd"] == pytest.approx(0.01)
-    assert breakdown["total_cost_usd"] == pytest.approx(0.03)
-    assert breakdown["score"] == pytest.approx(score)
+    return args
 
 
-def test_efficiency_accuracy_metric_incorrect_answer(monkeypatch):
-    """Test efficiency metric returns 0 for incorrect answers."""
-    monkeypatch.setattr(eval_module, "LM_COST_PER_1K_TOKENS", {"model": 0.2}, raising=False)
-    monkeypatch.setattr(eval_module, "WEBSEARCH_COST_PER_CALL_USD", 0.01, raising=False)
-    monkeypatch.setattr(
-        eval_module.dspy,
-        "ChainOfThought",
-        lambda *_, **__: lambda **__: SimpleNamespace(is_correct=False),
-        raising=False,
+@pytest.fixture
+def mock_config():
+    """Create mock config for BrowseCompEvaluator."""
+    config = SimpleNamespace(
+        big="gpt-4o-mini",
+        small="gpt-4o-mini",
+        big_max_tokens=4096,
+        small_max_tokens=4096,
     )
-
-    example = dspy.Example(problem="Q", answer="A")
-
-    class Prediction(SimpleNamespace):
-        def get_lm_usage(self):
-            return {"model": {"total_tokens": 100}}
-
-    pred = Prediction(report="Wrong", elapsed_seconds=2.0, websearch_calls=1)
-
-    score = eval_module.efficiency_accuracy_metric(example, pred)
-
-    # When incorrect, score is 0 and breakdown is still set
-    assert score == 0.0
-    assert hasattr(pred, "efficiency_breakdown")
-    assert pred.efficiency_breakdown["accuracy"] == 0.0
+    return config
 
 
-def test_efficiency_accuracy_metric_free_model(monkeypatch):
-    """Test efficiency metric with zero-cost model."""
-    monkeypatch.setattr(eval_module, "LM_COST_PER_1K_TOKENS", {"free-model": 0.0}, raising=False)
-    monkeypatch.setattr(eval_module, "WEBSEARCH_COST_PER_CALL_USD", 0.0, raising=False)
-    monkeypatch.setattr(
-        eval_module.dspy,
-        "ChainOfThought",
-        lambda *_, **__: lambda **__: SimpleNamespace(is_correct=True),
-        raising=False,
-    )
-
-    example = dspy.Example(problem="Q", answer="A")
-
-    class Prediction(SimpleNamespace):
-        def get_lm_usage(self):
-            return {"free-model": {"total_tokens": 100}}
-
-    pred = Prediction(report="A", elapsed_seconds=1.5, websearch_calls=0)
-
-    score = eval_module.efficiency_accuracy_metric(example, pred)
-
-    # With epsilon protection, score = 1.0 / (1.5 * 1e-6)
-    assert score > 0
-    breakdown = pred.efficiency_breakdown
-    assert breakdown["lm_cost_usd"] == 0.0
-    assert breakdown["web_cost_usd"] == 0.0
-    assert breakdown["total_cost_usd"] == 0.0
+@pytest.fixture
+def evaluator(mock_config, mock_args, monkeypatch):
+    """Create BrowseCompEvaluator with mocked LM initialization."""
+    # Mock dspy.LM to avoid actual API calls
+    mock_lm = MagicMock()
+    monkeypatch.setattr("eval.dspy.LM", lambda **kwargs: mock_lm)
+    
+    # Mock dspy.ChainOfThought
+    mock_judge = MagicMock()
+    monkeypatch.setattr("eval.dspy.ChainOfThought", lambda sig: mock_judge)
+    
+    evaluator = BrowseCompEvaluator(mock_config, mock_args)
+    evaluator.judge = mock_judge
+    return evaluator
 
 
-def test_efficiency_accuracy_metric_missing_usage(monkeypatch):
-    """Test efficiency metric handles missing usage data gracefully."""
-    monkeypatch.setattr(eval_module, "LM_COST_PER_1K_TOKENS", {}, raising=False)
-    monkeypatch.setattr(eval_module, "WEBSEARCH_COST_PER_CALL_USD", 0.01, raising=False)
-    monkeypatch.setattr(
-        eval_module.dspy,
-        "ChainOfThought",
-        lambda *_, **__: lambda **__: SimpleNamespace(is_correct=True),
-        raising=False,
-    )
-
-    example = dspy.Example(problem="Q", answer="A")
-
-    class Prediction(SimpleNamespace):
-        def get_lm_usage(self):
-            return None
-
-    pred = Prediction(report="A", elapsed_seconds=2.0, websearch_calls=2)
-
-    score = eval_module.efficiency_accuracy_metric(example, pred)
-
-    # Should handle None usage gracefully
-    assert score > 0
-    breakdown = pred.efficiency_breakdown
-    assert breakdown["lm_cost_usd"] == 0.0
-    assert breakdown["web_cost_usd"] == 0.02
+def test_calculate_lm_cost_basic(evaluator):
+    """Test LM cost calculation with basic token usage."""
+    usage = {
+        "openai/gpt-5-mini": {
+            "prompt_tokens": 1000,
+            "completion_tokens": 500,
+            "prompt_tokens_details": {"cached_tokens": 0}
+        }
+    }
+    
+    cost = evaluator.calculate_lm_cost(usage)
+    
+    # openai/gpt-5-mini: $0.25 per 1M input, $2.00 per 1M output
+    # 1000 tokens / 1M * $0.25 = $0.00025
+    # 500 tokens / 1M * $2.00 = $0.001
+    # Total: $0.00125
+    assert cost == pytest.approx(0.00125)
 
 
-def test_efficiency_accuracy_metric_separate_prompt_completion_tokens(monkeypatch):
-    """Test efficiency metric correctly sums prompt + completion tokens."""
-    monkeypatch.setattr(eval_module, "LM_COST_PER_1K_TOKENS", {"model": 0.1}, raising=False)
-    monkeypatch.setattr(eval_module, "WEBSEARCH_COST_PER_CALL_USD", 0.0, raising=False)
-    monkeypatch.setattr(
-        eval_module.dspy,
-        "ChainOfThought",
-        lambda *_, **__: lambda **__: SimpleNamespace(is_correct=True),
-        raising=False,
-    )
-
-    example = dspy.Example(problem="Q", answer="A")
-
-    class Prediction(SimpleNamespace):
-        def get_lm_usage(self):
-            # total_tokens missing, should sum prompt + completion
-            return {"model": {"prompt_tokens": 60, "completion_tokens": 40}}
-
-    pred = Prediction(report="A", elapsed_seconds=1.0, websearch_calls=0)
-
-    score = eval_module.efficiency_accuracy_metric(example, pred)
-
-    breakdown = pred.efficiency_breakdown
-    # 100 tokens * 0.1 per 1k = 0.01
-    assert breakdown["lm_cost_usd"] == pytest.approx(0.01)
+def test_calculate_lm_cost_with_caching(evaluator):
+    """Test LM cost calculation with cached tokens."""
+    usage = {
+        "openai/gpt-5-mini": {
+            "prompt_tokens": 2000,
+            "completion_tokens": 500,
+            "prompt_tokens_details": {"cached_tokens": 1000}
+        }
+    }
+    
+    cost = evaluator.calculate_lm_cost(usage)
+    
+    # openai/gpt-5-mini: $0.25 per 1M input, $0.025 per 1M cached, $2.00 per 1M output
+    # Non-cached: 1000 tokens / 1M * $0.25 = $0.00025
+    # Cached: 1000 tokens / 1M * $0.025 = $0.000025
+    # Output: 500 tokens / 1M * $2.00 = $0.001
+    # Total: $0.001275
+    assert cost == pytest.approx(0.001275)
 
 
-def test_browsecomp_metric_correct(monkeypatch):
-    """Test basic accuracy metric with correct answer."""
-    monkeypatch.setattr(
-        eval_module.dspy,
-        "ChainOfThought",
-        lambda *_, **__: lambda **__: SimpleNamespace(is_correct=True),
-        raising=False,
-    )
+def test_calculate_lm_cost_unknown_model(evaluator):
+    """Test LM cost calculation gracefully handles unknown models."""
+    usage = {
+        "unknown-model": {
+            "prompt_tokens": 1000,
+            "completion_tokens": 500,
+        }
+    }
+    
+    cost = evaluator.calculate_lm_cost(usage)
+    
+    # Unknown model should log warning and return 0 cost
+    assert cost == 0.0
 
+
+def test_calculate_lm_cost_multiple_models(evaluator):
+    """Test LM cost calculation with multiple models."""
+    usage = {
+        "openai/gpt-5-mini": {
+            "prompt_tokens": 1000,
+            "completion_tokens": 500,
+            "prompt_tokens_details": {"cached_tokens": 0}
+        },
+        "openai/gpt-5": {
+            "prompt_tokens": 500,
+            "completion_tokens": 200,
+            "prompt_tokens_details": {"cached_tokens": 0}
+        }
+    }
+    
+    cost = evaluator.calculate_lm_cost(usage)
+    
+    # gpt-5-mini: (1000/1M * $0.25) + (500/1M * $2.00) = $0.00025 + $0.001 = $0.00125
+    # gpt-5: (500/1M * $1.25) + (200/1M * $10.00) = $0.000625 + $0.002 = $0.002625
+    # Total: $0.003875
+    assert cost == pytest.approx(0.003875)
+
+
+def test_calculate_metrics_correct_answer(evaluator):
+    """Test calculate_metrics with correct answer."""
     example = dspy.Example(problem="What is 2+2?", answer="4")
     pred = dspy.Prediction(report="The answer is 4")
+    pred.elapsed_seconds = 2.0
+    pred.websearch_calls = 1
+    pred.get_lm_usage = lambda: {
+        "openai/gpt-5-mini": {
+            "prompt_tokens": 1000,
+            "completion_tokens": 500,
+            "prompt_tokens_details": {"cached_tokens": 0}
+        }
+    }
+    
+    # Mock judge to return correct
+    evaluator.judge_prediction = MagicMock(return_value=1.0)
+    
+    metrics = evaluator.calculate_metrics(example, pred)
+    
+    assert metrics["accuracy"] == 1.0
+    assert metrics["elapsed_seconds"] == 2.0
+    assert metrics["lm_cost_usd"] == pytest.approx(0.00125)  # $0.00125 as calculated above
+    assert metrics["web_cost_usd"] == pytest.approx(WEBSEARCH_COST_PER_CALL_USD)
+    assert metrics["total_cost_usd"] == pytest.approx(0.00125 + WEBSEARCH_COST_PER_CALL_USD)
+    assert metrics["websearch_calls"] == 1
+    assert "efficiency_temp" in metrics
 
-    score = eval_module.browsecomp_metric(example, pred)
 
-    assert score == 1.0
-
-
-def test_browsecomp_metric_incorrect(monkeypatch):
-    """Test basic accuracy metric with incorrect answer."""
-    monkeypatch.setattr(
-        eval_module.dspy,
-        "ChainOfThought",
-        lambda *_, **__: lambda **__: SimpleNamespace(is_correct=False),
-        raising=False,
-    )
-
+def test_calculate_metrics_incorrect_answer(evaluator):
+    """Test calculate_metrics with incorrect answer."""
     example = dspy.Example(problem="What is 2+2?", answer="4")
     pred = dspy.Prediction(report="The answer is 5")
+    pred.elapsed_seconds = 1.0
+    pred.websearch_calls = 0
+    pred.get_lm_usage = lambda: {}
+    
+    # Mock judge to return incorrect
+    evaluator.judge_prediction = MagicMock(return_value=0.0)
+    
+    metrics = evaluator.calculate_metrics(example, pred)
+    
+    assert metrics["accuracy"] == 0.0
+    assert metrics["efficiency_temp"] == 0.0  # Efficiency is 0 when incorrect
 
-    score = eval_module.browsecomp_metric(example, pred)
 
-    assert score == 0.0
-
-
-def test_browsecomp_metric_error_handling(monkeypatch):
-    """Test accuracy metric handles judge errors gracefully."""
-    def failing_judge(*_, **__):
-        raise ValueError("Judge failed")
-
-    monkeypatch.setattr(
-        eval_module.dspy,
-        "ChainOfThought",
-        lambda *_, **__: failing_judge,
-        raising=False,
-    )
-
+def test_accuracy_metric(evaluator):
+    """Test accuracy_metric returns judge result."""
     example = dspy.Example(problem="Q", answer="A")
     pred = dspy.Prediction(report="A")
+    
+    # Mock judge to return 1.0
+    evaluator.judge_prediction = MagicMock(return_value=1.0)
+    
+    score = evaluator.accuracy_metric(example, pred)
+    
+    assert score == 1.0
+    evaluator.judge_prediction.assert_called_once_with(example, pred)
 
-    score = eval_module.browsecomp_metric(example, pred)
 
-    assert score == 0.0
+def test_efficiency_metric_stores_metrics(evaluator):
+    """Test efficiency_metric stores full metrics in prediction."""
+    example = dspy.Example(problem="Q", answer="A")
+    pred = dspy.Prediction(report="A")
+    pred.elapsed_seconds = 1.0
+    pred.websearch_calls = 1
+    pred.get_lm_usage = lambda: {}
+    
+    # Mock calculate_metrics
+    expected_metrics = {
+        "accuracy": 1.0,
+        "elapsed_seconds": 1.0,
+        "total_cost_usd": 0.01,
+        "lm_cost_usd": 0.0,
+        "web_cost_usd": 0.01,
+        "websearch_calls": 1,
+        "lm_usage": {},
+        "efficiency_temp": 100.0,
+    }
+    evaluator.calculate_metrics = MagicMock(return_value=expected_metrics)
+    
+    score = evaluator.efficiency_metric(example, pred)
+    
+    assert score == 1.0  # Returns accuracy
+    assert pred.metrics == expected_metrics  # Stores full metrics
+
+
+def test_judge_prediction_error_handling(evaluator):
+    """Test judge_prediction handles errors gracefully."""
+    example = dspy.Example(problem="Q", answer="A")
+    pred = dspy.Prediction(report="A")
+    
+    # Mock judge to raise exception
+    evaluator.judge = MagicMock(side_effect=Exception("Judge failed"))
+    
+    score = evaluator.judge_prediction(example, pred)
+    
+    assert score == 0.0  # Returns 0 on error
