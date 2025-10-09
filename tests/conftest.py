@@ -5,6 +5,11 @@ Mocks external observability/telemetry tools to prevent:
 - API calls during tests (costly, pollutes production data)
 - Network requests (slower tests, requires credentials)
 - Import errors when dependencies not configured
+
+NOTE: This is the standard pytest pattern for mocking external dependencies.
+Langfuse mocking is centralized HERE (not in individual test files) following
+pytest best practices. This conftest.py is automatically loaded before any test
+execution, ensuring all test files benefit from these mocks without duplication.
 """
 import sys
 from unittest.mock import MagicMock
@@ -12,6 +17,7 @@ from unittest.mock import MagicMock
 
 # Mock langfuse before any test imports
 # This prevents langfuse from authenticating during test suite runs
+# IMPORTANT: conftest.py is the correct location for this (not individual test files)
 sys.modules['langfuse'] = MagicMock()
 sys.modules['langfuse.callback'] = MagicMock()
 

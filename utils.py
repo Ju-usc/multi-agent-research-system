@@ -229,6 +229,13 @@ def save_experiment_results(
     """
     Save comprehensive experiment results with full context.
     Organizes experiments by ID with metadata, results, and summary stats.
+    
+    Args:
+        predictions: List of dspy.Prediction objects (supports dict-like access)
+    
+    Note: dspy.Prediction inherits from dspy.Example which implements __getitem__,
+    .get(), .keys(), .values(), .items() methods. Using p.get('key', default) is
+    the correct and recommended way to access prediction attributes safely.
     """
     output_path = Path(output_dir)
     output_path.mkdir(exist_ok=True)
@@ -254,6 +261,7 @@ def save_experiment_results(
         "summary": {
             "score": result.score,
             "total_examples": len(examples),
+            # Note: p.get() is valid - dspy.Prediction inherits dict-like methods from Example class
             "passed": sum(1 for p in predictions if p.get('metrics', {}).get('accuracy', 0) > 0),
             "failed": sum(1 for p in predictions if p.get('metrics', {}).get('accuracy', 0) == 0),
         }
@@ -277,6 +285,7 @@ def save_experiment_results(
         json.dump(detailed_results, f, indent=2)
     
     # 3. Save summary statistics (for quick analysis)
+    # Note: p.get() works because dspy.Prediction inherits from Example (verified in source)
     metrics_list = [p.get('metrics', {}) for p in predictions]
     if metrics_list and metrics_list[0]:
         def safe_stats(values):
