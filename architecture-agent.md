@@ -28,6 +28,7 @@ ReAct-style orchestration: a **Lead Agent** plans via a **To-Do List**, uses fil
 **Subagent tools**
 - `web_search(query, …)` — research on the web.
 - `filesystem_write(path, markdown)` — append or overwrite markdown artifacts under the sandboxed memory root.
+- `parallel_tool_call(calls)` — run multiple subagent tools concurrently (e.g., parallel web searches).
 
 ## Contracts (minimal)
 
