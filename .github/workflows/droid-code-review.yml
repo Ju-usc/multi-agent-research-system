@@ -1,0 +1,72 @@
+name: Factory Droid Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  code-review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Droid CLI
+        run: |
+          curl -fsSL https://factory.perplexity.ai/install.sh | bash
+          echo "$HOME/.droid/bin" >> $GITHUB_PATH
+
+      - name: Set Droid API Key
+        run: |
+          mkdir -p $HOME/.config/droid
+          echo "${{ secrets.DROID_API_KEY }}" > $HOME/.config/droid/api_key
+
+      - name: Configure Git Identity
+        run: |
+          git config --global user.email "factory-droid[bot]@users.noreply.github.com"
+          git config --global user.name "factory-droid[bot]"
+
+      - name: Gather PR Context
+        id: context
+        run: |
+          echo "base=${{ github.event.pull_request.base.ref }}" >> $GITHUB_OUTPUT
+          echo "head=${{ github.event.pull_request.head.ref }}" >> $GITHUB_OUTPUT
+          echo "pr_number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+
+      - name: Run Droid Code Review
+        id: review
+        run: |
+          droid review \
+            --pr-number ${{ steps.context.outputs.pr_number }} \
+            --base ${{ steps.context.outputs.base }} \
+            --head ${{ steps.context.outputs.head }} \
+            --repo ${{ github.repository }} \
+            --output review.md
+
+      - name: Post Review Comment
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const reviewContent = fs.readFileSync('review.md', 'utf8');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.context.outputs.pr_number }},
+              body: reviewContent
+            });
+
+      - name: Upload Review Artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: droid-review-${{ steps.context.outputs.pr_number }}
+          path: review.md
+          retention-days: 30
