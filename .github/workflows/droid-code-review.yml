@@ -143,7 +143,7 @@ jobs:
           EOF
 
           echo "Running code review analysis..."
-          droid exec --auto high --model gpt-5-codex-high -f prompt.txt
+          droid exec --auto high --model gpt-5-codex -f prompt.txt
 
           if [ ! -f comments.json ]; then
             echo "❌ ERROR: droid exec did not create comments.json"
