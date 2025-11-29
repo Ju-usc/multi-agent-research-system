@@ -4,7 +4,6 @@ import dspy
 from dspy.adapters.chat_adapter import ChatAdapter
 
 from config import (
-    MODEL_PRESETS,
     BIG_MODEL,
     SMALL_MODEL,
     BIG_MODEL_MAX_TOKENS,
@@ -14,13 +13,7 @@ from config import (
     lm_kwargs_for,
 )
 from tools import WebSearchTool, FileSystemTool, TodoListTool, SubagentTool, ParallelToolCall
-from logging_config import trace_call, configure_logging
-from utils import create_model_cli_parser, setup_langfuse
-from langfuse import observe
-
-
-# Initialize Langfuse tracing once per process (no-op if disabled)
-langfuse = setup_langfuse()
+from utils import create_model_cli_parser
 
 logger = logging.getLogger(__name__)
 
@@ -148,8 +141,6 @@ class Agent(dspy.Module):
             tools=list(self.lead_agent_tools.values()),
         )
 
-    @trace_call("agent.forward")
-    @observe(name="lead_agent", capture_input=True, capture_output=True)
     def forward(self, query: str) -> dspy.Prediction:
         return self.lead_agent(query=query)
 
@@ -165,8 +156,7 @@ def parse_args():
 
 
 def main() -> None:
-    configure_logging()
-
+    logging.basicConfig(level=logging.INFO)
     args = parse_args()
     try:
         preset = resolve_model_config(args.model, args.model_big, args.model_small)

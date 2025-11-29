@@ -25,11 +25,9 @@ from config import (
     resolve_model_config,
 )
 from dataset import BrowseCompDataset
-from logging_config import configure_logging
 from utils import (
     create_model_cli_parser,
     iter_model_presets,
-    save_experiment_results,
     start_cleanup_watchdog,
     create_isolated_workspace,
     cleanup_workspace,
@@ -267,7 +265,7 @@ def main() -> None:
             print(f"- {name}: big={preset.big}, small={preset.small}")
         return
 
-    configure_logging()
+    logging.basicConfig(level=logging.INFO)
 
     print("🔍 BrowseComp Evaluation")
     print("=" * 50)
@@ -315,7 +313,7 @@ def main() -> None:
         
         program = evaluator.optimize_with_gepa(program, train)
         
-        print(f"\n✨ Optimization complete!")
+        print("\n✨ Optimization complete!")
         print(f"📝 Optimized {len(list(program.named_predictors()))} predictor(s)")
         for name, pred in program.named_predictors():
             instr = getattr(pred.signature, 'instructions', '<no instructions>')
@@ -324,20 +322,10 @@ def main() -> None:
         examples = test  # Evaluate on test set
 
     # Run evaluation
-    print(f"🚀 Evaluating...")
+    print("🚀 Evaluating...")
     result, predictions = evaluator.run(program, examples)
-    
-    save_experiment_results(
-        result=result,
-        examples=examples,
-        predictions=predictions,
-        config=config,
-        args=args,
-        output_dir="experiments"
-    )
-    
-    # Start watchdog to prevent hanging during cleanup
-    # (DSPy's executor shutdown can hang when LiteLLM callbacks are pending)
+
+    # Workaround for DSPy/LiteLLM cleanup hang
     start_cleanup_watchdog(grace_period_seconds=30)
 
     print("\n" + "=" * 50)
