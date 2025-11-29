@@ -210,17 +210,11 @@ class BrowseCompEvaluator:
     
     def run(self, program: BrowseCompProgram, examples: list) -> tuple:
         """Run evaluation and return (result, predictions)."""
-        predictions_dict = {}
         metric_fn = self.efficiency_metric if self.args.metric == "efficiency" else self.accuracy_metric
-        
-        def metric_with_capture(example, pred, trace=None):
-            score = metric_fn(example, pred, trace)
-            predictions_dict[example.problem] = pred
-            return score
         
         evaluator = dspy.Evaluate(
             devset=examples,
-            metric=metric_with_capture,
+            metric=metric_fn,
             num_threads=self.args.num_threads,
             display_progress=True,
             display_table=5,
@@ -228,20 +222,11 @@ class BrowseCompEvaluator:
         )
         
         result = evaluator(program)
-        predictions = self._extract_predictions(predictions_dict, examples)
+        
+        # Extract predictions from DSPy's built-in result.results
+        # Each item is (example, prediction, score)
+        predictions = [pred for _, pred, _ in result.results]
         return result, predictions
-    
-    def _extract_predictions(self, predictions_dict: dict, examples: list) -> list:
-        """Extract predictions in correct order, handling missing ones."""
-        predictions = []
-        for i, ex in enumerate(examples):
-            pred = predictions_dict.get(ex.problem)
-            if pred is None:
-                logger.warning(f"Missing prediction for example {i}, creating placeholder")
-                pred = dspy.Prediction(answer="ERROR", report="ERROR")
-                pred.metrics = {"accuracy": 0.0, "elapsed_seconds": 0, "total_cost_usd": 0}
-            predictions.append(pred)
-        return predictions
 
 def _parse_args():
     parser = create_model_cli_parser("Run BrowseComp evaluation", include_list=True)
