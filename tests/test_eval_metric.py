@@ -48,6 +48,9 @@ def evaluator(mock_config, mock_args, monkeypatch):
     mock_judge = MagicMock()
     monkeypatch.setattr("eval.dspy.ChainOfThought", lambda sig: mock_judge)
     
+    # Mock lm_kwargs_for to avoid API key checks
+    monkeypatch.setattr("eval.lm_kwargs_for", lambda model_id: {})
+    
     evaluator = BrowseCompEvaluator(mock_args)
     evaluator.judge = mock_judge
     return evaluator
