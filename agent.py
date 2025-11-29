@@ -49,7 +49,6 @@ class Agent(dspy.Module):
             work_dir = "memory"  # Backward compatible default
         self.fs_tool = FileSystemTool(root=work_dir)
         self.todo_list_tool = TodoListTool()
-        self.fs = self.fs_tool  # provide backward-compatible alias
 
         # Lead / subagent language models
         big_kwargs = lm_kwargs_for(big_model)

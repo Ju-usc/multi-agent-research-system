@@ -4,7 +4,7 @@ All tools are implemented as classes with __call__ methods unless class methods 
 """
 
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Any, Optional
 import json
 import dspy
 from pathlib import Path
@@ -32,7 +32,7 @@ class WebSearchTool:
 
     def __call__(
         self,
-        queries: List[str],  # Supports batch queries - more efficient (1 API call vs N calls)
+        queries: list[str],  # Supports batch queries - more efficient (1 API call vs N calls)
         max_results: Optional[int] = 5,
         max_tokens_per_page: Optional[int] = 1024,
     ) -> str:
@@ -60,7 +60,7 @@ class WebSearchTool:
         except Exception as exc:
             return f"Error searching for {queries}: {exc}"
 
-        lines: List[str] = []
+        lines: list[str] = []
         for idx, result in enumerate(results, 1):
             title = result.title
             snippet = result.snippet
@@ -103,7 +103,7 @@ class ParallelToolCall:
     IMPORTANT: web_search accepts List[str] for batch efficiency (1 API call = N queries).
     """
 
-    def __init__(self, tools: Dict[str, Any], *, num_threads: int = 4) -> None:
+    def __init__(self, tools: dict[str, Any], *, num_threads: int = 4) -> None:
         self.tools = tools
         self._num_threads = num_threads
 
@@ -160,7 +160,7 @@ class FileSystemTool:
         return (self.root / path).exists()
 
     def tree(self, max_depth: Optional[int] = 3) -> str:
-        paths: List[str] = []
+        paths: list[str] = []
         self._collect_paths(self.root, "", paths, max_depth, 0)
 
         root_label = f"{str(self.root).rstrip('/')}/"
@@ -198,9 +198,9 @@ class TodoListTool:
     """Run-scoped todo store. Accepts our built Todo model list; minimal and strict."""
 
     def __init__(self) -> None:
-        self._todos: List[Todo] = []
+        self._todos: list[Todo] = []
 
-    def write(self, todos: List[Todo]) -> str:
+    def write(self, todos: list[Todo]) -> str:
         """Replace the todo list with the given list[Todo] and return Json string"""
         try:
             self._todos = todos
@@ -237,7 +237,7 @@ class SubagentTool:
     use the parallel_tool_call tool in the lead agent.
     """
 
-    def __init__(self, tools: List[dspy.Tool], lm: Any, adapter: Optional[Any] = None) -> None:
+    def __init__(self, tools: list[dspy.Tool], lm: Any, adapter: Optional[Any] = None) -> None:
         self._tools = tools
         self._lm = lm
         self._adapter = adapter

@@ -7,7 +7,7 @@ Start with README.md for the high-level tour.
 See also:
 - @README.md — project overview (Before starting any task, read this file)
 - @architecture-agent.md — agent architecture (primary direction)
-- @architecture-workflow.md — workflow architecture (structured pipeline)
+
 - @.codex/ — additional useful rules/guidelines (Before starting any task, read this file)
 
 ---
@@ -108,7 +108,7 @@ The example stores the run at `logs/trace-ai-collab.log`. Pre-create directories
 
 ## Coding conventions (enforced by review)
 
-* Follow contracts in @architecture-agent.md and @architecture-workflow\.md; do not add ad-hoc fields or tools.
+* Follow contracts in @architecture-agent.md; do not add ad-hoc fields or tools.
 * Single-shape I/O per function/module; validate at boundaries and **fail fast**.
 * Keep modules small; avoid ambient globals; pass dependencies explicitly.
 * Prefer straight-line logic: one input type → one output type. If variants are required, use an explicit `type/kind` field and switch once.
@@ -144,7 +144,7 @@ The example stores the run at `logs/trace-ai-collab.log`. Pre-create directories
 ## Repo pointers (orientation, not coupling)
 
 * `agent.py` — flexible a single ReAct-style agent; plans, executes, synthesizes in one loop (see @architecture-agent.md).
-* `workflow.py` — structured Plan → Execute → Synthesize multi modules pipeline (see @architecture-workflow\.md).
+
 * `tools.py` — tool definitions; usage documented in architecture files.
 * `models.py` — data schemas and signatures.
 * `config.py` — env/config switches.

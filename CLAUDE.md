@@ -11,7 +11,7 @@ multi-agent-research-system/
 ├── config.py                   # Environment variables, model constants, and logging configuration
 ├── models.py                   # Pydantic models and DSPy signatures for the multi-agent system
 ├── tools.py                    # Class-based tool implementations with async support
-├── utils.py                    # Helper functions including prediction_to_json and Langfuse setup
+├── utils.py                    # CLI utilities and workspace helpers
 ├── eval.py                     # BrowseComp evaluation with efficiency metrics and GEPA optimization
 ├── dataset.py                  # BrowseComp dataset loader with XOR decryption and DSPy Example creation
 ├── README.md                   # Project overview and basic usage instructions
@@ -40,7 +40,7 @@ multi-agent-research-system/
 - **config.py**: Centralized configuration for environment variables, model constants, and logging setup
 - **models.py**: All Pydantic models (SubagentTask, SubagentResult, Memory) and DSPy signatures in one place
 - **tools.py**: Class-based tool implementations (WebSearchTool, MemoryTool) with async support
-- **utils.py**: Helper functions including prediction_to_json and Langfuse observability setup
+- **utils.py**: CLI utilities including argument parsing and workspace helpers
 - **eval.py**: Evaluation with accuracy/efficiency metrics, GEPA optimization, and DSPy's built-in result saving
 - **dataset.py**: Handles BrowseComp dataset operations including downloading, XOR decryption with canary checking, and conversion to DSPy Examples
 

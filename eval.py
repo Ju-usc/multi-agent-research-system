@@ -96,7 +96,7 @@ class BrowseCompProgram(dspy.Module):
 class BrowseCompEvaluator:
     """Encapsulates BrowseComp evaluation with proper state management."""
     
-    def __init__(self, config, args):
+    def __init__(self, args):
         self.args = args
         
         # Initialize grader LM once for all evaluations (major efficiency improvement)
@@ -288,7 +288,7 @@ def main() -> None:
     dspy.settings.configure(track_usage=True)
     
     # Initialize evaluator with grader and optimizer LMs
-    evaluator = BrowseCompEvaluator(config, args)
+    evaluator = BrowseCompEvaluator(args)
     
     # Load dataset
     dataset = BrowseCompDataset(num_examples=args.num_examples)
