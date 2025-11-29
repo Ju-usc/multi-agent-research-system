@@ -97,7 +97,6 @@ class BrowseCompEvaluator:
     """Encapsulates BrowseComp evaluation with proper state management."""
     
     def __init__(self, config, args):
-        self.config = config
         self.args = args
         
         # Initialize grader LM once for all evaluations (major efficiency improvement)
