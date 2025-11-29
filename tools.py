@@ -4,18 +4,15 @@ All tools are implemented as classes with __call__ methods unless class methods 
 """
 
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Any, Optional
 import json
 import dspy
 from pathlib import Path
 from perplexity import Perplexity
-from langfuse import observe
 from config import PERPLEXITY_API_KEY
-from logging_config import trace_call
 from models import (
     Todo,
     SubagentTask,
-    SubagentResult,
     ExecuteSubagentTask,
 )
 
@@ -33,11 +30,9 @@ class WebSearchTool:
         self.client = Perplexity(api_key=PERPLEXITY_API_KEY)
         self.call_count = 0
 
-    @trace_call("tool_web_search")
-    @observe(name="tool_web_search", capture_input=True, capture_output=True)
     def __call__(
         self,
-        queries: List[str],  # Supports batch queries - more efficient (1 API call vs N calls)
+        queries: list[str],  # Supports batch queries - more efficient (1 API call vs N calls)
         max_results: Optional[int] = 5,
         max_tokens_per_page: Optional[int] = 1024,
     ) -> str:
@@ -65,7 +60,7 @@ class WebSearchTool:
         except Exception as exc:
             return f"Error searching for {queries}: {exc}"
 
-        lines: List[str] = []
+        lines: list[str] = []
         for idx, result in enumerate(results, 1):
             title = result.title
             snippet = result.snippet
@@ -108,12 +103,10 @@ class ParallelToolCall:
     IMPORTANT: web_search accepts List[str] for batch efficiency (1 API call = N queries).
     """
 
-    def __init__(self, tools: Dict[str, Any], *, num_threads: int = 4) -> None:
+    def __init__(self, tools: dict[str, Any], *, num_threads: int = 4) -> None:
         self.tools = tools
         self._num_threads = num_threads
 
-    @trace_call("tool_parallel_tool_call")
-    @observe(name="tool_parallel_tool_call", capture_input=True, capture_output=True)
     def __call__(self, calls: list[dict]) -> list[str]:
         """Calls must be dicts of the form {'tool': str, 'args': dict}."""
         if not calls:
@@ -151,22 +144,12 @@ class FileSystemTool:
         self.root = Path(root)
         self.root.mkdir(exist_ok=True)
 
-        # Cache resolved root for simple path safety checks
-        try:
-            self._resolved_root = self.root.resolve()
-        except Exception:
-            self._resolved_root = self.root
-
-    @trace_call("tool_filesystem_write")
-    @observe(name="tool_filesystem_write", capture_input=True, capture_output=True)
     def write(self, path: str, content: str) -> Path:
         file_path = self.root / path
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content)
         return file_path
 
-    @trace_call("tool_filesystem_read")
-    @observe(name="tool_filesystem_read", capture_input=True, capture_output=True)
     def read(self, path: str) -> str:
         file_path = self.root / path
         if not file_path.exists():
@@ -176,10 +159,8 @@ class FileSystemTool:
     def exists(self, path: str) -> bool:
         return (self.root / path).exists()
 
-    @trace_call("tool_filesystem_tree")
-    @observe(name="tool_filesystem_tree", capture_input=True, capture_output=True)
     def tree(self, max_depth: Optional[int] = 3) -> str:
-        paths: List[str] = []
+        paths: list[str] = []
         self._collect_paths(self.root, "", paths, max_depth, 0)
 
         root_label = f"{str(self.root).rstrip('/')}/"
@@ -217,11 +198,9 @@ class TodoListTool:
     """Run-scoped todo store. Accepts our built Todo model list; minimal and strict."""
 
     def __init__(self) -> None:
-        self._todos: List[Todo] = []
+        self._todos: list[Todo] = []
 
-    @trace_call("tool_todo_write")
-    @observe(name="tool_todo_write", capture_input=True, capture_output=True)
-    def write(self, todos: List[Todo]) -> str:
+    def write(self, todos: list[Todo]) -> str:
         """Replace the todo list with the given list[Todo] and return Json string"""
         try:
             self._todos = todos
@@ -235,8 +214,6 @@ class TodoListTool:
         except Exception as e:
             return f"Error writing todos: {e}"
         
-    @trace_call("tool_todo_read")
-    @observe(name="tool_todo_read", capture_input=True, capture_output=True)
     def read(self) -> str:
         """Return the current todos as Json string"""
         try:
@@ -260,13 +237,11 @@ class SubagentTool:
     use the parallel_tool_call tool in the lead agent.
     """
 
-    def __init__(self, tools: List[dspy.Tool], lm: Any, adapter: Optional[Any] = None) -> None:
+    def __init__(self, tools: list[dspy.Tool], lm: Any, adapter: Optional[Any] = None) -> None:
         self._tools = tools
         self._lm = lm
         self._adapter = adapter
 
-    @trace_call("tool_subagent_run")
-    @observe(name="tool_subagent_run", capture_input=True, capture_output=True)
     def __call__(self, task: SubagentTask) -> str:
         """Execute one subagent task and return JSON-formatted result.
         
@@ -292,10 +267,7 @@ class SubagentTool:
         result.task_name = task.task_name
         
         # Normalize artifact_path: strip any "memory/" prefix to ensure workspace-relative path
-        # This prevents issues when workspace root is not "memory/" (e.g., "memory_eval/uuid/")
         if result.artifact_path:
-            result.artifact_path = result.artifact_path.lstrip('/')
-            if result.artifact_path.startswith('memory/'):
-                result.artifact_path = result.artifact_path[7:]  # Remove "memory/" prefix
+            result.artifact_path = result.artifact_path.lstrip('/').removeprefix('memory/')
         
         return json.dumps(result.model_dump(), indent=2)

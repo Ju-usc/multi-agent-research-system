@@ -6,6 +6,7 @@ Evaluates the multi-agent research system on BrowseComp using DSPy's built-in ev
 
 import time
 import logging
+from pathlib import Path
 
 import dspy
 from dspy.adapters.chat_adapter import ChatAdapter
@@ -24,11 +25,9 @@ from config import (
     resolve_model_config,
 )
 from dataset import BrowseCompDataset
-from logging_config import configure_logging
 from utils import (
     create_model_cli_parser,
     iter_model_presets,
-    save_experiment_results,
     start_cleanup_watchdog,
     create_isolated_workspace,
     cleanup_workspace,
@@ -58,48 +57,46 @@ class BrowseCompProgram(dspy.Module):
     """
     DSPy program wrapper for Agent to make it compatible with dspy.Evaluate.
     
-    Creates isolated workspace per example to prevent filesystem conflicts
-    when running with --num-threads > 1.
+    Agent is created as module attribute so GEPA can discover and optimize tools.
+    Uses deepcopy() for thread-safe parallel evaluation.
     """
 
     def __init__(self, big_model: str, small_model: str, big_max_tokens: int, small_max_tokens: int):
         super().__init__()
-        self.big_model = big_model
-        self.small_model = small_model
-        self.big_max_tokens = big_max_tokens
-        self.small_max_tokens = small_max_tokens
+        self.agent = Agent(
+            big_model=big_model,
+            small_model=small_model,
+            temperature=TEMPERATURE,
+            big_max_tokens=big_max_tokens,
+            small_max_tokens=small_max_tokens,
+            work_dir="memory_eval/default",
+        )
 
     def forward(self, problem: str) -> dspy.Prediction:
         work_dir = create_isolated_workspace()
         
         try:
-            agent = Agent(
-                big_model=self.big_model,
-                small_model=self.small_model,
-                temperature=TEMPERATURE,
-                big_max_tokens=self.big_max_tokens,
-                small_max_tokens=self.small_max_tokens,
-                work_dir=str(work_dir),
-            )
+            # Use DSPy's built-in deepcopy to preserve optimized tool descriptions
+            agent = self.agent.deepcopy()
+            agent.fs_tool.root = Path(work_dir)  # Update filesystem root
             agent.web_search_tool.call_count = 0
 
             start = time.perf_counter()
-            agent_prediction = agent(problem)
+            prediction = agent(problem)
             elapsed = time.perf_counter() - start
-
-            agent_prediction.report = agent_prediction.answer
-            agent_prediction.elapsed_seconds = elapsed
-            agent_prediction.websearch_calls = agent.web_search_tool.call_count
             
-            return agent_prediction
+            prediction.report = prediction.answer
+            prediction.elapsed_seconds = elapsed
+            prediction.websearch_calls = agent.web_search_tool.call_count
+            
+            return prediction
         finally:
             cleanup_workspace(work_dir)
 
 class BrowseCompEvaluator:
     """Encapsulates BrowseComp evaluation with proper state management."""
     
-    def __init__(self, config, args):
-        self.config = config
+    def __init__(self, args):
         self.args = args
         
         # Initialize grader LM once for all evaluations (major efficiency improvement)
@@ -186,7 +183,7 @@ class BrowseCompEvaluator:
     def accuracy_metric(self, example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
         """DSPy metric: returns accuracy only."""
         return self.judge_prediction(example, pred)
-    
+
     def efficiency_metric(self, example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
         """DSPy metric: returns accuracy, stores full metrics in prediction."""
         metrics = self.calculate_metrics(example, pred)
@@ -200,13 +197,13 @@ class BrowseCompEvaluator:
         optimizer = GEPA(
             metric=metric_fn,
             reflection_lm=self.reflection_lm,
-            auto='medium',
-            max_full_evals=self.args.optimize_steps,
+            max_full_evals=self.args.optimize_steps,  # Use explicit steps (can't combine with auto)
             num_threads=self.args.num_threads,
             track_stats=True,
             track_best_outputs=True,
             candidate_selection_strategy='pareto',
             use_merge=True,
+            optimize_tool_descriptions=True,  # Optimize tool descriptions alongside signatures
         )
         
         return optimizer.compile(student=program, trainset=train)
@@ -240,7 +237,7 @@ class BrowseCompEvaluator:
         for i, ex in enumerate(examples):
             pred = predictions_dict.get(ex.problem)
             if pred is None:
-                print(f"⚠️ Missing prediction for example {i}, creating placeholder")
+                logger.warning(f"Missing prediction for example {i}, creating placeholder")
                 pred = dspy.Prediction(answer="ERROR", report="ERROR")
                 pred.metrics = {"accuracy": 0.0, "elapsed_seconds": 0, "total_cost_usd": 0}
             predictions.append(pred)
@@ -267,7 +264,7 @@ def main() -> None:
             print(f"- {name}: big={preset.big}, small={preset.small}")
         return
 
-    configure_logging()
+    logging.basicConfig(level=logging.INFO)
 
     print("🔍 BrowseComp Evaluation")
     print("=" * 50)
@@ -291,7 +288,7 @@ def main() -> None:
     dspy.settings.configure(track_usage=True)
     
     # Initialize evaluator with grader and optimizer LMs
-    evaluator = BrowseCompEvaluator(config, args)
+    evaluator = BrowseCompEvaluator(args)
     
     # Load dataset
     dataset = BrowseCompDataset(num_examples=args.num_examples)
@@ -315,7 +312,7 @@ def main() -> None:
         
         program = evaluator.optimize_with_gepa(program, train)
         
-        print(f"\n✨ Optimization complete!")
+        print("\n✨ Optimization complete!")
         print(f"📝 Optimized {len(list(program.named_predictors()))} predictor(s)")
         for name, pred in program.named_predictors():
             instr = getattr(pred.signature, 'instructions', '<no instructions>')
@@ -324,20 +321,10 @@ def main() -> None:
         examples = test  # Evaluate on test set
 
     # Run evaluation
-    print(f"🚀 Evaluating...")
+    print("🚀 Evaluating...")
     result, predictions = evaluator.run(program, examples)
-    
-    save_experiment_results(
-        result=result,
-        examples=examples,
-        predictions=predictions,
-        config=config,
-        args=args,
-        output_dir="experiments"
-    )
-    
-    # Start watchdog to prevent hanging during cleanup
-    # (DSPy's executor shutdown can hang when LiteLLM callbacks are pending)
+
+    # Workaround for DSPy/LiteLLM cleanup hang
     start_cleanup_watchdog(grace_period_seconds=30)
 
     print("\n" + "=" * 50)

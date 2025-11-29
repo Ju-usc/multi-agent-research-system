@@ -3,7 +3,9 @@ name = "multi-agent-research-system"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
-    "dspy-ai",
+    # Using fork with tool description optimization (PR #8927)
+    # Switch back to "dspy-ai" once PR is merged
+    "dspy @ git+https://github.com/Ju-usc/dspy.git@feature/tool-description-optimization",
     "openai",
     "jupyter",
     "pydantic",

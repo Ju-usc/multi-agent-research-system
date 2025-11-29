@@ -48,7 +48,7 @@ def evaluator(mock_config, mock_args, monkeypatch):
     mock_judge = MagicMock()
     monkeypatch.setattr("eval.dspy.ChainOfThought", lambda sig: mock_judge)
     
-    evaluator = BrowseCompEvaluator(mock_config, mock_args)
+    evaluator = BrowseCompEvaluator(mock_args)
     evaluator.judge = mock_judge
     return evaluator
 

@@ -5,7 +5,6 @@ Logging configuration is handled in logging_config.py to avoid side effects.
 """
 
 import os
-import json
 from dataclasses import dataclass
 from typing import Final
 

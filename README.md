@@ -5,7 +5,7 @@ A minimal multi-agent research system, built with DSPy, inspired by [Anthropic�
 
 > Documentation:
 > - **architecture-agent.md** — flexible, subagent-spawning design (primary direction)
-> - **architecture-workflow.md** — structured plan → execute → synthesize pipeline
+
 > - **AGENTS.md** — contributor setup, coding style, and testing checklist
 
 ## Core ideas
