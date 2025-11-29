@@ -268,8 +268,6 @@ class SubagentTool:
         
         # Normalize artifact_path: strip any "memory/" prefix to ensure workspace-relative path
         if result.artifact_path:
-            parts = Path(result.artifact_path).parts
-            if parts and parts[0] == 'memory':
-                result.artifact_path = str(Path(*parts[1:])) if len(parts) > 1 else ""
+            result.artifact_path = result.artifact_path.lstrip('/').removeprefix('memory/')
         
         return json.dumps(result.model_dump(), indent=2)
