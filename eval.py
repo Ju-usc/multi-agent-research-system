@@ -6,6 +6,7 @@ Evaluates the multi-agent research system on BrowseComp using DSPy's built-in ev
 
 import time
 import logging
+from pathlib import Path
 
 import dspy
 from dspy.adapters.chat_adapter import ChatAdapter
@@ -58,40 +59,39 @@ class BrowseCompProgram(dspy.Module):
     """
     DSPy program wrapper for Agent to make it compatible with dspy.Evaluate.
     
-    Creates isolated workspace per example to prevent filesystem conflicts
-    when running with --num-threads > 1.
+    Agent is created as module attribute so GEPA can discover and optimize tools.
+    Uses deepcopy() for thread-safe parallel evaluation.
     """
 
     def __init__(self, big_model: str, small_model: str, big_max_tokens: int, small_max_tokens: int):
         super().__init__()
-        self.big_model = big_model
-        self.small_model = small_model
-        self.big_max_tokens = big_max_tokens
-        self.small_max_tokens = small_max_tokens
+        self.agent = Agent(
+            big_model=big_model,
+            small_model=small_model,
+            temperature=TEMPERATURE,
+            big_max_tokens=big_max_tokens,
+            small_max_tokens=small_max_tokens,
+            work_dir="memory_eval/default",
+        )
 
     def forward(self, problem: str) -> dspy.Prediction:
         work_dir = create_isolated_workspace()
         
         try:
-            agent = Agent(
-                big_model=self.big_model,
-                small_model=self.small_model,
-                temperature=TEMPERATURE,
-                big_max_tokens=self.big_max_tokens,
-                small_max_tokens=self.small_max_tokens,
-                work_dir=str(work_dir),
-            )
+            # Use DSPy's built-in deepcopy to preserve optimized tool descriptions
+            agent = self.agent.deepcopy()
+            agent.fs_tool.root = Path(work_dir)  # Update filesystem root
             agent.web_search_tool.call_count = 0
 
             start = time.perf_counter()
-            agent_prediction = agent(problem)
+            prediction = agent(problem)
             elapsed = time.perf_counter() - start
-
-            agent_prediction.report = agent_prediction.answer
-            agent_prediction.elapsed_seconds = elapsed
-            agent_prediction.websearch_calls = agent.web_search_tool.call_count
             
-            return agent_prediction
+            prediction.report = prediction.answer
+            prediction.elapsed_seconds = elapsed
+            prediction.websearch_calls = agent.web_search_tool.call_count
+            
+            return prediction
         finally:
             cleanup_workspace(work_dir)
 
@@ -186,7 +186,7 @@ class BrowseCompEvaluator:
     def accuracy_metric(self, example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
         """DSPy metric: returns accuracy only."""
         return self.judge_prediction(example, pred)
-    
+
     def efficiency_metric(self, example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
         """DSPy metric: returns accuracy, stores full metrics in prediction."""
         metrics = self.calculate_metrics(example, pred)
@@ -200,13 +200,13 @@ class BrowseCompEvaluator:
         optimizer = GEPA(
             metric=metric_fn,
             reflection_lm=self.reflection_lm,
-            auto='medium',
-            max_full_evals=self.args.optimize_steps,
+            max_full_evals=self.args.optimize_steps,  # Use explicit steps (can't combine with auto)
             num_threads=self.args.num_threads,
             track_stats=True,
             track_best_outputs=True,
             candidate_selection_strategy='pareto',
             use_merge=True,
+            optimize_tool_descriptions=True,  # Optimize tool descriptions alongside signatures
         )
         
         return optimizer.compile(student=program, trainset=train)
@@ -240,7 +240,7 @@ class BrowseCompEvaluator:
         for i, ex in enumerate(examples):
             pred = predictions_dict.get(ex.problem)
             if pred is None:
-                print(f"⚠️ Missing prediction for example {i}, creating placeholder")
+                logger.warning(f"Missing prediction for example {i}, creating placeholder")
                 pred = dspy.Prediction(answer="ERROR", report="ERROR")
                 pred.metrics = {"accuracy": 0.0, "elapsed_seconds": 0, "total_cost_usd": 0}
             predictions.append(pred)
