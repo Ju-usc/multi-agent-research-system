@@ -2,11 +2,9 @@
 Data models and DSPy signatures for the multi-agent research system.
 """
 
-from typing import List, Dict, Optional, Literal
+from typing import List, Optional, Literal
 from pydantic import BaseModel, Field
 import dspy
-from pathlib import Path
-from config import SMALL_MODEL, OPENROUTER_API_KEY, OPENROUTER_BASE_URL, SMALL_MODEL_MAX_TOKENS
 
 
 # ---------- Data Models ----------

@@ -151,12 +151,6 @@ class FileSystemTool:
         self.root = Path(root)
         self.root.mkdir(exist_ok=True)
 
-        # Cache resolved root for simple path safety checks
-        try:
-            self._resolved_root = self.root.resolve()
-        except Exception:
-            self._resolved_root = self.root
-
     @trace_call("tool_filesystem_write")
     @observe(name="tool_filesystem_write", capture_input=True, capture_output=True)
     def write(self, path: str, content: str) -> Path:
@@ -292,10 +286,9 @@ class SubagentTool:
         result.task_name = task.task_name
         
         # Normalize artifact_path: strip any "memory/" prefix to ensure workspace-relative path
-        # This prevents issues when workspace root is not "memory/" (e.g., "memory_eval/uuid/")
         if result.artifact_path:
-            result.artifact_path = result.artifact_path.lstrip('/')
-            if result.artifact_path.startswith('memory/'):
-                result.artifact_path = result.artifact_path[7:]  # Remove "memory/" prefix
+            parts = Path(result.artifact_path).parts
+            if parts and parts[0] == 'memory':
+                result.artifact_path = str(Path(*parts[1:])) if len(parts) > 1 else ""
         
         return json.dumps(result.model_dump(), indent=2)
