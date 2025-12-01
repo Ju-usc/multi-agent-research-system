@@ -12,6 +12,7 @@ import pytest
 
 from eval import BrowseCompEvaluator
 from config import WEBSEARCH_COST_PER_CALL_USD
+from utils import calculate_lm_cost
 
 
 @pytest.fixture
@@ -53,7 +54,7 @@ def evaluator(mock_config, mock_args, monkeypatch):
     return evaluator
 
 
-def test_calculate_lm_cost_basic(evaluator):
+def test_calculate_lm_cost_basic():
     """Test LM cost calculation with basic token usage."""
     usage = {
         "openai/gpt-5-mini": {
@@ -63,7 +64,7 @@ def test_calculate_lm_cost_basic(evaluator):
         }
     }
     
-    cost = evaluator.calculate_lm_cost(usage)
+    cost = calculate_lm_cost(usage)
     
     # openai/gpt-5-mini: $0.25 per 1M input, $2.00 per 1M output
     # 1000 tokens / 1M * $0.25 = $0.00025
@@ -72,7 +73,7 @@ def test_calculate_lm_cost_basic(evaluator):
     assert cost == pytest.approx(0.00125)
 
 
-def test_calculate_lm_cost_with_caching(evaluator):
+def test_calculate_lm_cost_with_caching():
     """Test LM cost calculation with cached tokens."""
     usage = {
         "openai/gpt-5-mini": {
@@ -82,7 +83,7 @@ def test_calculate_lm_cost_with_caching(evaluator):
         }
     }
     
-    cost = evaluator.calculate_lm_cost(usage)
+    cost = calculate_lm_cost(usage)
     
     # openai/gpt-5-mini: $0.25 per 1M input, $0.025 per 1M cached, $2.00 per 1M output
     # Non-cached: 1000 tokens / 1M * $0.25 = $0.00025
@@ -92,7 +93,7 @@ def test_calculate_lm_cost_with_caching(evaluator):
     assert cost == pytest.approx(0.001275)
 
 
-def test_calculate_lm_cost_unknown_model(evaluator):
+def test_calculate_lm_cost_unknown_model():
     """Test LM cost calculation gracefully handles unknown models."""
     usage = {
         "unknown-model": {
@@ -101,13 +102,13 @@ def test_calculate_lm_cost_unknown_model(evaluator):
         }
     }
     
-    cost = evaluator.calculate_lm_cost(usage)
+    cost = calculate_lm_cost(usage)
     
     # Unknown model should log warning and return 0 cost
     assert cost == 0.0
 
 
-def test_calculate_lm_cost_multiple_models(evaluator):
+def test_calculate_lm_cost_multiple_models():
     """Test LM cost calculation with multiple models."""
     usage = {
         "openai/gpt-5-mini": {
@@ -122,7 +123,7 @@ def test_calculate_lm_cost_multiple_models(evaluator):
         }
     }
     
-    cost = evaluator.calculate_lm_cost(usage)
+    cost = calculate_lm_cost(usage)
     
     # gpt-5-mini: (1000/1M * $0.25) + (500/1M * $2.00) = $0.00025 + $0.001 = $0.00125
     # gpt-5: (500/1M * $1.25) + (200/1M * $10.00) = $0.000625 + $0.002 = $0.002625

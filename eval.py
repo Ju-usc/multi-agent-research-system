@@ -14,7 +14,6 @@ from dspy.teleprompt import GEPA
 
 from agent import Agent
 from config import (
-    LM_PRICING,
     WEBSEARCH_COST_PER_CALL_USD,
     TEMPERATURE,
     GRADER_MODEL,
@@ -31,6 +30,7 @@ from utils import (
     start_cleanup_watchdog,
     create_isolated_workspace,
     cleanup_workspace,
+    calculate_lm_cost,
 )
 
 logger = logging.getLogger(__name__)
@@ -117,35 +117,6 @@ class BrowseCompEvaluator:
                 **lm_kwargs_for(OPTIMIZER_MODEL),
             )
     
-    def calculate_lm_cost(self, usage: dict) -> float:
-        """Calculate LM cost with accurate input/output/cached token pricing.
-        
-        Pricing in LM_PRICING is per 1M tokens (industry standard).
-        Formula: (tokens / 1,000,000) * price_per_1M = cost in USD
-        """
-        total_cost = 0.0
-        
-        for model_name, stats in usage.items():
-            pricing = LM_PRICING.get(model_name, {})
-            if not pricing:
-                logger.warning(f"No pricing configured for model: {model_name}")
-                continue
-            
-            prompt_tokens = stats.get("prompt_tokens", 0)
-            completion_tokens = stats.get("completion_tokens", 0)
-            prompt_details = stats.get("prompt_tokens_details", {})
-            cached_tokens = prompt_details.get("cached_tokens", 0)
-            non_cached_input = prompt_tokens - cached_tokens
-            
-            # Pricing is per 1M tokens, so divide by 1,000,000
-            input_cost = (non_cached_input / 1_000_000) * pricing.get("input", 0.0)
-            cached_cost = (cached_tokens / 1_000_000) * pricing.get("cached_input", pricing.get("input", 0.0))
-            output_cost = (completion_tokens / 1_000_000) * pricing.get("output", 0.0)
-            
-            total_cost += input_cost + cached_cost + output_cost
-        
-        return total_cost
-    
     def judge_prediction(self, example: dspy.Example, pred: dspy.Prediction) -> float:
         """Judge single prediction using initialized grader LM."""
         try:
@@ -164,7 +135,7 @@ class BrowseCompEvaluator:
         """Calculate all metrics (accuracy, cost, time) for a prediction."""
         accuracy = self.judge_prediction(example, pred)
         usage = pred.get_lm_usage() or {}
-        lm_cost = self.calculate_lm_cost(usage)
+        lm_cost = calculate_lm_cost(usage)
         web_cost = pred.websearch_calls * WEBSEARCH_COST_PER_CALL_USD
         elapsed = pred.elapsed_seconds
         total_cost = lm_cost + web_cost
