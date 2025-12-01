@@ -151,12 +151,20 @@ class BrowseCompEvaluator:
             "efficiency_temp": accuracy / (max(1e-6, elapsed) * max(1e-6, total_cost)) if accuracy > 0 else 0.0,
         }
     
-    def accuracy_metric(self, example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
-        """DSPy metric: returns accuracy only."""
+    def accuracy_metric(self, example: dspy.Example, pred: dspy.Prediction, trace=None, pred_name=None, pred_trace=None) -> float:
+        """DSPy metric: returns accuracy only.
+        
+        GEPA requires 5 arguments: (gold, pred, trace, pred_name, pred_trace).
+        - pred_name=None: program-level scoring (return float)
+        - pred_name set: predictor-level scoring (can return Prediction with feedback)
+        """
         return self.judge_prediction(example, pred)
 
-    def efficiency_metric(self, example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
-        """DSPy metric: returns accuracy, stores full metrics in prediction."""
+    def efficiency_metric(self, example: dspy.Example, pred: dspy.Prediction, trace=None, pred_name=None, pred_trace=None) -> float:
+        """DSPy metric: returns accuracy, stores full metrics in prediction.
+        
+        GEPA requires 5 arguments: (gold, pred, trace, pred_name, pred_trace).
+        """
         metrics = self.calculate_metrics(example, pred)
         pred.metrics = metrics
         return metrics["accuracy"]
