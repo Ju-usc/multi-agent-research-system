@@ -57,7 +57,7 @@ def evaluator(mock_config, mock_args, monkeypatch):
 def test_calculate_lm_cost_basic():
     """Test LM cost calculation with basic token usage."""
     usage = {
-        "openai/gpt-5-mini": {
+        "openrouter/openai/gpt-5-mini": {
             "prompt_tokens": 1000,
             "completion_tokens": 500,
             "prompt_tokens_details": {"cached_tokens": 0}
@@ -66,7 +66,7 @@ def test_calculate_lm_cost_basic():
     
     cost = calculate_lm_cost(usage)
     
-    # openai/gpt-5-mini: $0.25 per 1M input, $2.00 per 1M output
+    # openrouter/openai/gpt-5-mini: $0.25 per 1M input, $2.00 per 1M output
     # 1000 tokens / 1M * $0.25 = $0.00025
     # 500 tokens / 1M * $2.00 = $0.001
     # Total: $0.00125
@@ -76,7 +76,7 @@ def test_calculate_lm_cost_basic():
 def test_calculate_lm_cost_with_caching():
     """Test LM cost calculation with cached tokens."""
     usage = {
-        "openai/gpt-5-mini": {
+        "openrouter/openai/gpt-5-mini": {
             "prompt_tokens": 2000,
             "completion_tokens": 500,
             "prompt_tokens_details": {"cached_tokens": 1000}
@@ -85,7 +85,7 @@ def test_calculate_lm_cost_with_caching():
     
     cost = calculate_lm_cost(usage)
     
-    # openai/gpt-5-mini: $0.25 per 1M input, $0.025 per 1M cached, $2.00 per 1M output
+    # openrouter/openai/gpt-5-mini: $0.25 per 1M input, $0.025 per 1M cached, $2.00 per 1M output
     # Non-cached: 1000 tokens / 1M * $0.25 = $0.00025
     # Cached: 1000 tokens / 1M * $0.025 = $0.000025
     # Output: 500 tokens / 1M * $2.00 = $0.001
@@ -111,12 +111,12 @@ def test_calculate_lm_cost_unknown_model():
 def test_calculate_lm_cost_multiple_models():
     """Test LM cost calculation with multiple models."""
     usage = {
-        "openai/gpt-5-mini": {
+        "openrouter/openai/gpt-5-mini": {
             "prompt_tokens": 1000,
             "completion_tokens": 500,
             "prompt_tokens_details": {"cached_tokens": 0}
         },
-        "openai/gpt-5": {
+        "openrouter/openai/gpt-5": {
             "prompt_tokens": 500,
             "completion_tokens": 200,
             "prompt_tokens_details": {"cached_tokens": 0}
@@ -138,7 +138,7 @@ def test_calculate_metrics_correct_answer(evaluator):
     pred.elapsed_seconds = 2.0
     pred.websearch_calls = 1
     pred.get_lm_usage = lambda: {
-        "openai/gpt-5-mini": {
+        "openrouter/openai/gpt-5-mini": {
             "prompt_tokens": 1000,
             "completion_tokens": 500,
             "prompt_tokens_details": {"cached_tokens": 0}

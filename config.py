@@ -32,39 +32,104 @@ class ModelPreset:
 
 
 MODEL_PRESETS: Final[dict[str, ModelPreset]] = {
-    "gpt-5-mini": ModelPreset(
-        big="openai/gpt-5-mini",
-        small="openai/gpt-5-mini",
-        big_max_tokens=30000,
-        small_max_tokens=30000,
+    # === FREE TIER MODELS (50 req/day without credits, 1000/day with $10+) ===
+    
+    # xAI Grok 4.1 Fast - Best agentic tool calling, 2M context
+    # TESTED: Excellent tool calling. Very thorough researcher (~30 web searches).
+    # Slow for BrowseComp (~29 min/example). Some Perplexity 400 errors on complex queries.
+    # RECOMMENDED: Lead agent, judge/grader roles (quality over speed)
+    "grok-4.1-fast": ModelPreset(
+        big="openrouter/x-ai/grok-4.1-fast:free",
+        small="openrouter/x-ai/grok-4.1-fast:free",
+        big_max_tokens=16000,
+        small_max_tokens=16000,
     ),
+    # Moonshot Kimi K2 - Strong reasoning, tool use
+    # TESTED: Reliable tool calling. Good balance of speed and quality.
+    # Completed BrowseComp in ~5-6 min. No stability issues.
+    # RECOMMENDED: Subagent workhorse, primary testing model
     "kimi-k2": ModelPreset(
         big="openrouter/moonshotai/kimi-k2:free",
         small="openrouter/moonshotai/kimi-k2:free",
-        big_max_tokens=30000,
-        small_max_tokens=30000,
+        big_max_tokens=16000,
+        small_max_tokens=16000,
     ),
+    # Qwen3 Coder - Optimized for agentic coding, 262K context
+    # TESTED: Tool calling works. Coding-focused, may be less suited for research.
+    # Consider for code analysis subagents.
     "qwen3-coder": ModelPreset(
         big="openrouter/qwen/qwen3-coder:free",
         small="openrouter/qwen/qwen3-coder:free",
         big_max_tokens=12000,
         small_max_tokens=12000,
     ),
-    "gpt-oss-120b": ModelPreset(
-        big="openrouter/openai/gpt-oss-120b:free",
-        small="openrouter/openai/gpt-oss-120b:free",
-        big_max_tokens=30000,
-        small_max_tokens=30000,
+    # OpenAI gpt-oss-20b - Open-weight, agentic capabilities
+    # TESTED: Tool calling works. Limited testing on BrowseComp.
+    "gpt-oss-20b": ModelPreset(
+        big="openrouter/openai/gpt-oss-20b:free",
+        small="openrouter/openai/gpt-oss-20b:free",
+        big_max_tokens=16000,
+        small_max_tokens=16000,
     ),
-    "deepseek-v3.1": ModelPreset(
-        big="openrouter/deepseek/deepseek-chat-v3.1:free",
-        small="openrouter/deepseek/deepseek-chat-v3.1:free",
-        big_max_tokens=30000,
-        small_max_tokens=30000,
+    # DeepSeek R1T Chimera - Reasoning + efficiency merged model
+    # TESTED: Tool calling works BUT did NOT use websearch tool in BrowseComp (0 calls).
+    # NOT RECOMMENDED for research tasks requiring web search.
+    "deepseek-r1t": ModelPreset(
+        big="openrouter/tngtech/deepseek-r1t-chimera:free",
+        small="openrouter/tngtech/deepseek-r1t-chimera:free",
+        big_max_tokens=16000,
+        small_max_tokens=16000,
+    ),
+    # GLM 4.5 Air - Hybrid reasoning, agent-centric
+    # TESTED: Tool calling works. UNSTABLE in eval - "cannot schedule new futures
+    # after shutdown" errors. NOT RECOMMENDED until stability issues resolved.
+    "glm-4.5-air": ModelPreset(
+        big="openrouter/z-ai/glm-4.5-air:free",
+        small="openrouter/z-ai/glm-4.5-air:free",
+        big_max_tokens=16000,
+        small_max_tokens=16000,
+    ),
+    
+    # === PAID MODELS (via OpenRouter) ===
+    
+    # MiniMax M2 - Strong on BrowseComp, agentic workflows
+    # TESTED: Tool calling works. Untested on full BrowseComp eval.
+    "minimax-m2": ModelPreset(
+        big="openrouter/minimax/minimax-m2",
+        small="openrouter/minimax/minimax-m2",
+        big_max_tokens=16000,
+        small_max_tokens=16000,
+    ),
+    # OpenAI GPT-5 Nano - Fast, cheap, good tool support
+    # TESTED: Tool calling works. Minor quirk: outputs 'finish' with quotes.
+    "gpt-5-nano": ModelPreset(
+        big="openrouter/openai/gpt-5-nano",
+        small="openrouter/openai/gpt-5-nano",
+        big_max_tokens=16000,
+        small_max_tokens=16000,
+    ),
+    # OpenAI GPT-5 Mini - Balanced performance (via OpenRouter)
+    "gpt-5-mini": ModelPreset(
+        big="openrouter/openai/gpt-5-mini",
+        small="openrouter/openai/gpt-5-mini",
+        big_max_tokens=16000,
+        small_max_tokens=16000,
     ),
 }
 
-DEFAULT_MODEL_PRESET: Final[str] = "gpt-5-mini"
+# === MODEL ROLE DEFAULTS ===
+# Lead agent: orchestrates, plans, synthesizes - needs high reasoning quality
+# Subagent: executes research tasks - needs speed + reliability
+# Judge/Grader: evaluates answers - needs consistency
+DEFAULT_LEAD_MODEL: Final[str] = "grok-4.1-fast"
+DEFAULT_SUBAGENT_MODEL: Final[str] = "kimi-k2"
+DEFAULT_MODEL_PRESET: Final[str] = "kimi-k2"  # Default for CLI --model flag
+
+# === AGENT BEHAVIOR CONFIGURATION ===
+# Reflection: Lead agent self-checks answer completeness before finalizing
+# Adds ~1 extra LLM call but improves answer quality on complex queries
+ENABLE_REFLECTION: Final[bool] = True
+MAX_REFLECTION_ITERATIONS: Final[int] = 2  # Max self-correction loops
 
 def _resolve_override(
     override: str | None,
@@ -113,19 +178,14 @@ def resolve_model_config(
 
 
 def lm_kwargs_for(model_id: str) -> dict[str, str]:
-    if model_id.startswith("openrouter/"):
-        if not OPENROUTER_API_KEY:
-            raise RuntimeError("OPENROUTER_API_KEY must be set to use OpenRouter models.")
+    """Return API kwargs for a model. All models route through OpenRouter."""
+    if not OPENROUTER_API_KEY:
+        raise RuntimeError("OPENROUTER_API_KEY must be set.")
 
-        kwargs = {"api_key": OPENROUTER_API_KEY}
-        if OPENROUTER_BASE_URL:
-            kwargs["base_url"] = OPENROUTER_BASE_URL
-        return kwargs
-
-    if not OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY must be set to use OpenAI models.")
-
-    return {"api_key": OPENAI_API_KEY}
+    kwargs = {"api_key": OPENROUTER_API_KEY}
+    if OPENROUTER_BASE_URL:
+        kwargs["base_url"] = OPENROUTER_BASE_URL
+    return kwargs
 
 
 _DEFAULT_PRESET = resolve_model_config()
@@ -142,50 +202,83 @@ TEMPERATURE = 1.0
 # ========== EVALUATION MODELS (Fixed for experimental consistency) ==========
 # These models are used for evaluation/optimization across all experiments
 # to eliminate judge/optimizer variance as a confounding variable.
-GRADER_MODEL: Final[str] = "openai/gpt-5"  # Judges answer correctness
-GRADER_MAX_TOKENS: Final[int] = 16000  # Large budget for reasoning chains
+# Using Grok 4.1 Fast: thorough, high reasoning quality, free tier
+GRADER_MODEL: Final[str] = "openrouter/x-ai/grok-4.1-fast:free"  # Judges answer correctness
+GRADER_MAX_TOKENS: Final[int] = 16000
 
-OPTIMIZER_MODEL: Final[str] = "openai/gpt-5"  # GEPA prompt optimization
-OPTIMIZER_MAX_TOKENS: Final[int] = 32000  # Large budget for prompt refinement
+OPTIMIZER_MODEL: Final[str] = "openrouter/x-ai/grok-4.1-fast:free"  # GEPA prompt optimization
+OPTIMIZER_MAX_TOKENS: Final[int] = 16000  # Grok 4.1 Fast free tier limit
 
 # ========== COST CONFIGURATION ==========
 
 WEBSEARCH_COST_PER_CALL_USD = float(os.getenv("WEBSEARCH_COST_PER_CALL_USD", "0.005"))
 
 # Model pricing per 1 MILLION tokens (industry standard format)
-# Matches OpenAI/Anthropic/Google pricing display conventions
-# Note: Even when using free tier, we track AS IF paying for meaningful cost comparisons
+# Note: Free tier models track "as if paying" for meaningful cost comparisons
 LM_PRICING: Final[dict[str, dict[str, float]]] = {
-    # OpenAI GPT-5 Models (Standard Tier - verified 2025)
-    "openai/gpt-5-mini": {
-        "input": 0.25,           # $0.25 per 1M tokens
-        "output": 2.00,          # $2.00 per 1M tokens
-        "cached_input": 0.025    # $0.025 per 1M tokens (90% discount)
-    },
-    "openai/gpt-5": {
-        "input": 1.25,           # $1.25 per 1M tokens
-        "output": 10.00,         # $10.00 per 1M tokens
-        "cached_input": 0.125    # $0.125 per 1M tokens (90% discount)
-    },
+    # === FREE TIER MODELS ===
     
-    # DeepSeek v3.1 (verified 2025 - OpenRouter free tier uses same pricing)
-    "openrouter/deepseek/deepseek-chat-v3.1:free": {
-        "input": 0.28,           # $0.28 per 1M tokens (cache miss)
-        "output": 0.42,          # $0.42 per 1M tokens
-        "cached_input": 0.028    # $0.028 per 1M tokens (cache hit, 90% discount)
+    # xAI Grok 4.1 Fast (free tier)
+    "openrouter/x-ai/grok-4.1-fast:free": {
+        "input": 0.0,
+        "output": 0.0,
+        "cached_input": 0.0
     },
-    
-    # Moonshot Kimi K2 (verified 2025)
+    # Moonshot Kimi K2 (free tier)
     "openrouter/moonshotai/kimi-k2:free": {
-        "input": 0.60,           # $0.60 per 1M tokens (cache miss)
-        "output": 2.50,          # $2.50 per 1M tokens
-        "cached_input": 0.15     # $0.15 per 1M tokens (cache hit, 75% discount)
+        "input": 0.60,
+        "output": 2.50,
+        "cached_input": 0.15
+    },
+    # Qwen3 Coder (free tier)
+    "openrouter/qwen/qwen3-coder:free": {
+        "input": 0.22,
+        "output": 0.95,
+        "cached_input": 0.22
+    },
+    # OpenAI gpt-oss-20b (free tier)
+    "openrouter/openai/gpt-oss-20b:free": {
+        "input": 0.0,
+        "output": 0.0,
+        "cached_input": 0.0
+    },
+    # DeepSeek R1T Chimera (free tier)
+    "openrouter/tngtech/deepseek-r1t-chimera:free": {
+        "input": 0.0,
+        "output": 0.0,
+        "cached_input": 0.0
+    },
+    # GLM 4.5 Air (free tier)
+    "openrouter/z-ai/glm-4.5-air:free": {
+        "input": 0.0,
+        "output": 0.0,
+        "cached_input": 0.0
     },
     
-    # Qwen3 Coder (verified 2025 - OpenRouter pricing)
-    "openrouter/qwen/qwen3-coder:free": {
-        "input": 0.22,           # $0.22 per 1M tokens
-        "output": 0.95,          # $0.95 per 1M tokens
-        "cached_input": 0.22     # $0.22 per 1M tokens (no separate cache discount)
-    }
+    # === PAID MODELS ===
+    
+    # MiniMax M2
+    "openrouter/minimax/minimax-m2": {
+        "input": 0.255,
+        "output": 1.02,
+        "cached_input": 0.255
+    },
+    # OpenAI GPT-5 Nano
+    "openrouter/openai/gpt-5-nano": {
+        "input": 0.05,
+        "output": 0.40,
+        "cached_input": 0.005
+    },
+    # OpenAI GPT-5 Mini (via OpenRouter)
+    "openrouter/openai/gpt-5-mini": {
+        "input": 0.25,
+        "output": 2.00,
+        "cached_input": 0.025
+    },
+    # OpenAI GPT-5 (for grader/optimizer)
+    "openrouter/openai/gpt-5": {
+        "input": 1.25,
+        "output": 10.00,
+        "cached_input": 0.125
+    },
 }
