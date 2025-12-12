@@ -147,11 +147,14 @@ def parse_args():
     parser = create_model_cli_parser(
         "Run the single-loop research agent.",
         query=(
-            "Lamine vs Doue? Be objective and keep it research short and concise DO NOT ASK ANYTHING ELSE. Try to use tools provided to you to test our system first. Yet there will be no memory artifacts as this is the first session.",
-            "Query to run through the agent.",
+            None,  # Required - no default
+            "Research query to run through the agent.",
         ),
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.query is None:
+        parser.error("--query is required")
+    return args
 
 
 def main() -> None:

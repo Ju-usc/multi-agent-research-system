@@ -4,12 +4,19 @@ All tools are implemented as classes with __call__ methods unless class methods 
 """
 
 import logging
+import shutil
 from typing import Any, Optional
 import json
 import dspy
 from pathlib import Path
 from perplexity import Perplexity
-from config import PERPLEXITY_API_KEY
+from config import (
+    PERPLEXITY_API_KEY,
+    WEBSEARCH_MAX_RESULTS,
+    WEBSEARCH_MAX_TOKENS_PER_PAGE,
+    PARALLEL_THREADS,
+    FILESYSTEM_TREE_MAX_DEPTH,
+)
 from models import (
     Todo,
     SubagentTask,
@@ -33,8 +40,8 @@ class WebSearchTool:
     def __call__(
         self,
         queries: list[str],  # Supports batch queries - more efficient (1 API call vs N calls)
-        max_results: Optional[int] = 5,
-        max_tokens_per_page: Optional[int] = 1024,
+        max_results: Optional[int] = WEBSEARCH_MAX_RESULTS,
+        max_tokens_per_page: Optional[int] = WEBSEARCH_MAX_TOKENS_PER_PAGE,
     ) -> str:
         """Search the web using Perplexity API.
         
@@ -103,7 +110,7 @@ class ParallelToolCall:
     IMPORTANT: web_search accepts List[str] for batch efficiency (1 API call = N queries).
     """
 
-    def __init__(self, tools: dict[str, Any], *, num_threads: int = 4) -> None:
+    def __init__(self, tools: dict[str, Any], *, num_threads: int = PARALLEL_THREADS) -> None:
         self.tools = tools
         self._num_threads = num_threads
 
@@ -159,7 +166,7 @@ class FileSystemTool:
     def exists(self, path: str) -> bool:
         return (self.root / path).exists()
 
-    def tree(self, max_depth: Optional[int] = 3) -> str:
+    def tree(self, max_depth: Optional[int] = FILESYSTEM_TREE_MAX_DEPTH) -> str:
         paths: list[str] = []
         self._collect_paths(self.root, "", paths, max_depth, 0)
 
@@ -187,7 +194,6 @@ class FileSystemTool:
                 paths.append(item_path)
 
     def clear(self) -> None:
-        import shutil
         if self.root.exists():
             shutil.rmtree(self.root)
         self.root.mkdir(exist_ok=True)

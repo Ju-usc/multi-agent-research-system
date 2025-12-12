@@ -98,7 +98,8 @@ class BrowseCompEvaluator:
     
     def __init__(self, args):
         self.args = args
-        
+        self.reflection_lm = None  # Initialized lazily if optimization requested
+
         # Initialize grader LM once for all evaluations (major efficiency improvement)
         self.grader_lm = dspy.LM(
             model=GRADER_MODEL,
@@ -107,7 +108,7 @@ class BrowseCompEvaluator:
             **lm_kwargs_for(GRADER_MODEL),
         )
         self.judge = dspy.ChainOfThought(BrowseCompJudge)
-        
+
         # Initialize reflection LM for GEPA optimization if needed
         if args.optimize:
             self.reflection_lm = dspy.LM(
