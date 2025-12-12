@@ -14,11 +14,9 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 # ========== API KEYS ==========
-BRAVE_SEARCH_API_KEY = os.getenv("BRAVE_SEARCH_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-EXA_API_KEY = os.getenv("EXA_API_KEY")
 PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
 
 # ========== MODEL CONFIGURATION ==========
@@ -135,9 +133,26 @@ BIG_MODEL_MAX_TOKENS = _DEFAULT_PRESET.big_max_tokens
 SMALL_MODEL_MAX_TOKENS = _DEFAULT_PRESET.small_max_tokens
 
 # ========== MODEL PARAMETERS ==========
-TEMPERATURE = 1.0
+TEMPERATURE = 1.0  # High temp for diverse research exploration
 # Max token limits are derived from the selected preset above.
 # Do not override them here; models like OpenRouter free tiers enforce 8–16k.
+
+# ========== TOOL DEFAULTS ==========
+# WebSearch defaults
+WEBSEARCH_MAX_RESULTS = 5  # Results per query
+WEBSEARCH_MAX_TOKENS_PER_PAGE = 1024  # Content truncation limit
+
+# Parallel execution
+PARALLEL_THREADS = 4  # Max concurrent tool invocations
+
+# Filesystem tree display
+FILESYSTEM_TREE_MAX_DEPTH = 3
+
+# Workspace isolation
+WORKSPACE_UUID_LENGTH = 8  # Characters from UUID for directory naming
+
+# Cleanup watchdog
+CLEANUP_WATCHDOG_TIMEOUT_SECONDS = 30  # Force exit if DSPy/LiteLLM cleanup hangs
 
 # ========== EVALUATION MODELS (Fixed for experimental consistency) ==========
 # These models are used for evaluation/optimization across all experiments

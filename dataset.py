@@ -87,7 +87,7 @@ class BrowseCompDataset:
             examples.append(example)
         
         # Sample if requested
-        if self.num_examples:
+        if self.num_examples is not None and self.num_examples > 0:
             random.seed(self.seed)
             examples = random.sample(examples, min(self.num_examples, len(examples)))
             
