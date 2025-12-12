@@ -17,18 +17,22 @@ ReAct-style orchestration: a **Lead Agent** plans via a **To-Do List**, uses fil
 
 ## Tools (fixed surfaces)
 
+All primitive tools return JSON: `{"isError": bool, "message": str}`.
+- `isError: false` → success, result in `message`
+- `isError: true` → failure, error details in `message`
+
 **Lead tools**
-- `todo_list_read()` — return the full To-Do payload as JSON.
-- `todo_list_write(todos)` — write the entire To-Do list as a JSON payload.
-- `filesystem_read(path)` — read a markdown artifact stored under the sandboxed `memory/` root.
-- `filesystem_tree(max_depth)` — list artifacts under `memory/` for quick discovery.
-- `subagent_run(task)` — execute a single subagent research task.
-- `parallel_tool_call(calls)` — run multiple tools concurrently (e.g., spawn multiple subagents in parallel).
+- `todo_list_read()` — returns `{isError, message}` with todos JSON in message.
+- `todo_list_write(todos)` — write the entire To-Do list, returns `{isError, message}`.
+- `filesystem_read(path)` — read artifact, returns `{isError, message}` with content in message.
+- `filesystem_tree(max_depth)` — list artifacts, returns `{isError, message}` with directory tree.
+- `subagent_run(task)` — execute subagent, returns `SubagentResult` JSON (summary, detail, artifact_path).
+- `parallel_tool_call(calls)` — run tools concurrently, returns list of individual tool results.
 
 **Subagent tools**
-- `web_search(query, …)` — research on the web.
-- `filesystem_write(path, markdown)` — append or overwrite markdown artifacts under the sandboxed memory root.
-- `parallel_tool_call(calls)` — run multiple subagent tools concurrently (e.g., parallel web searches).
+- `web_search(query, …)` — search web, returns `{isError, message}` with results in message.
+- `filesystem_write(path, content)` — write artifact, returns `{isError, message}`.
+- `parallel_tool_call(calls)` — run tools concurrently, returns list of individual tool results.
 
 ## Contracts (minimal)
 

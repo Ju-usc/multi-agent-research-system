@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 import pathlib
 import sys
+import json
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
@@ -51,8 +52,9 @@ def test_web_search_tool_formats_results(monkeypatch):
     tool = tools.WebSearchTool()
 
     output = tool(["test query"])
+    result = json.loads(output)
 
-    expected = (
+    expected_message = (
         "1. Result One\n"
         "Snippet One\n"
         "https://one.example\n"
@@ -65,7 +67,8 @@ def test_web_search_tool_formats_results(monkeypatch):
         "2024-01-04"
     )
 
-    assert output == expected
+    assert result["isError"] is False
+    assert result["message"] == expected_message
     assert fake_client.api_key == "fake-key"
     assert fake_client.search.last_kwargs == {
         "query": "test query",
@@ -129,11 +132,13 @@ def test_parallel_tool_call_invokes_tools(monkeypatch):
 
     results = tool(calls)
 
-    assert results == [
-        "alpha:A",
-        "beta:123",
-        "Unknown tool: missing",
-    ]
+    # alpha and beta return plain strings (tools return their own format)
+    assert results[0] == "alpha:A"
+    assert results[1] == "beta:123"
+    # Missing tool returns JSON error
+    missing_result = json.loads(results[2])
+    assert missing_result["isError"] is True
+    assert "Unknown tool: missing" in missing_result["message"]
     assert _FakeParallel.last_num_threads == 4
 
 
@@ -156,5 +161,9 @@ def test_parallel_tool_call_reports_failures(monkeypatch):
         {"tool": "boom", "args": {}},
     ])
 
-    assert results == ["fine", "Tool error (boom): kaboom"]
+    assert results[0] == "fine"
+    error_result = json.loads(results[1])
+    assert error_result["isError"] is True
+    assert "boom" in error_result["message"]
+    assert "kaboom" in error_result["message"]
 
