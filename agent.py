@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 import dspy
 from dspy.adapters.chat_adapter import ChatAdapter
@@ -18,13 +19,10 @@ from utils import create_model_cli_parser
 logger = logging.getLogger(__name__)
 
 
-
-
 class AgentSignature(dspy.Signature):
-    """Minimal single-loop agent contract."""
-
+    """Lead agent contract."""
     query: str = dspy.InputField(desc="User query or research request")
-    answer: str = dspy.OutputField(desc="answer to the user's query")
+    answer: str = dspy.OutputField(desc="Answer to the query")
 
 
 class Agent(dspy.Module):
@@ -36,21 +34,17 @@ class Agent(dspy.Module):
         temperature: float = TEMPERATURE,
         big_max_tokens: int = BIG_MODEL_MAX_TOKENS,
         small_max_tokens: int = SMALL_MODEL_MAX_TOKENS,
-        work_dir: str | None = None,
+        work_dir: Path | str | None = None,
     ) -> None:
         super().__init__()
-        # Shared adapter for structured outputs
-        # Core tools
         self.web_search_tool = WebSearchTool()
-        
-        # Use isolated work directory or default to shared "memory"
-        # Enables parallel evaluation without filesystem conflicts
         if work_dir is None:
-            work_dir = "memory"  # Backward compatible default
+            work_dir = Path("memory")
+        elif isinstance(work_dir, str):
+            work_dir = Path(work_dir)
         self.fs_tool = FileSystemTool(root=work_dir)
         self.todo_list_tool = TodoListTool()
 
-        # Lead / subagent language models
         big_kwargs = lm_kwargs_for(big_model)
         small_kwargs = lm_kwargs_for(small_model)
 
@@ -72,12 +66,12 @@ class Agent(dspy.Module):
             "web_search": dspy.Tool(
                 self.web_search_tool,
                 name="web_search",
-                desc="Search the web for supporting information (<=5 results).",
+                desc="Search the web. Returns JSON: {isError: bool, message: str} with search results in message.",
             ),
             "filesystem_write": dspy.Tool(
                 self.fs_tool.write,
                 name="filesystem_write",
-                desc="Write content to path relative to workspace root. Use simple relative paths like 'results/data.json', NOT 'memory/results/data.json'.",
+                desc="Write content to path. Returns JSON: {isError: bool, message: str}. Use relative paths like 'results/data.json'.",
             ),
         }
 
@@ -88,43 +82,40 @@ class Agent(dspy.Module):
             desc="Run multiple subagent tools in parallel with a single call.",
         )
 
-        # Subagent execution tool 
         self.subagent_tool = SubagentTool(
             tools=list(self.subagent_tools.values()),
             lm=self.subagent_lm,
             adapter=ChatAdapter(),
         )
 
-        # Lead tool registry (populate base tools first)
         self.lead_agent_tools = {
             "filesystem_read": dspy.Tool(
                 self.fs_tool.read,
                 name="filesystem_read",
-                desc="Read artifacts using paths relative to workspace root (e.g., 'results/data.json').",
+                desc="Read artifacts. Returns JSON: {isError: bool, message: str} with file content in message.",
             ),
             "filesystem_tree": dspy.Tool(
                 self.fs_tool.tree,
                 name="filesystem_tree",
-                desc="List workspace tree to see available artifacts. Returns paths relative to workspace root.",
+                desc="List workspace tree. Returns JSON: {isError: bool, message: str} with directory listing in message.",
             ),
             "todo_list_read": dspy.Tool(
                 self.todo_list_tool.read,
                 name="todo_list_read",
-                desc="Fetch the current status of the To-Do list. Useful when you need to see what you have planned.",
+                desc="Fetch To-Do list. Returns JSON: {isError: bool, message: str} with todos in message.",
             ),
             "todo_list_write": dspy.Tool(
                 self.todo_list_tool.write,
                 name="todo_list_write",
-                desc="Write the To-Do list. Useful when you need to plan something. You should always try to update the To-Do list status.",
+                desc="Write To-Do list. Returns JSON: {isError: bool, message: str}. Always update status after completing tasks.",
             ),
             "subagent_run": dspy.Tool(
                 self.subagent_tool,
                 name="subagent_run",
-                desc="Execute a single subagent research task. Returns JSON with summary, detail, and artifact_path. For parallel execution of multiple subagents, use parallel_tool_call.",
+                desc="Execute a subagent task. Returns JSON with summary, detail, artifact_path. Use parallel_tool_call for concurrent execution.",
             ),
         }
         
-        # Add parallel_tool_call for lead agent to enable parallel subagent execution
         lead_parallel_tool = ParallelToolCall(self.lead_agent_tools, num_threads=4)
         self.lead_agent_tools["parallel_tool_call"] = dspy.Tool(
             lead_parallel_tool,
@@ -132,9 +123,6 @@ class Agent(dspy.Module):
             desc="Run multiple lead agent tools in parallel. Useful for spawning multiple subagents concurrently.",
         )
 
-
-
-        # Single-loop agent program
         self.lead_agent = dspy.ReAct(
             AgentSignature,
             tools=list(self.lead_agent_tools.values()),
@@ -142,6 +130,18 @@ class Agent(dspy.Module):
 
     def forward(self, query: str) -> dspy.Prediction:
         return self.lead_agent(query=query)
+
+    def reset_workspace(self, work_dir: Path) -> None:
+        """Reset agent state for a new evaluation run.
+
+        Args:
+            work_dir: New workspace directory (will be created if needed)
+        """
+        self.fs_tool.root = work_dir
+        work_dir.mkdir(parents=True, exist_ok=True)
+        self.web_search_tool.call_count = 0
+        self.todo_list_tool._todos = []
+
 
 def parse_args():
     parser = create_model_cli_parser(

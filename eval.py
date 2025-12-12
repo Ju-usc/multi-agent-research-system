@@ -74,12 +74,11 @@ class BrowseCompProgram(dspy.Module):
 
     def forward(self, problem: str) -> dspy.Prediction:
         work_dir = create_isolated_workspace()
-        
+
         try:
             # Use DSPy's built-in deepcopy to preserve optimized tool descriptions
             agent = self.agent.deepcopy()
-            agent.fs_tool.root = Path(work_dir)  # Update filesystem root
-            agent.web_search_tool.call_count = 0
+            agent.reset_workspace(work_dir)
 
             start = time.perf_counter()
             prediction = agent(problem)
