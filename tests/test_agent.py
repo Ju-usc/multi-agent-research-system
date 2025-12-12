@@ -34,7 +34,7 @@ def test_todo_list_round_trip():
 
     write_response = json.loads(tool.write(todos))
     assert write_response["isError"] is False
-    assert "Updated 1 todo items" in write_response["message"]
+    assert "Updated 1 todo item" in write_response["message"]
 
     read_response = json.loads(tool.read())
     assert read_response["isError"] is False

@@ -171,7 +171,8 @@ class TodoListTool:
     def write(self, todos: list[Todo]) -> str:
         try:
             self._todos = todos
-            return tool_response(False, f"Updated {len(self._todos)} todo items")
+            count = len(self._todos)
+            return tool_response(False, f"Updated {count} todo item{'s' if count != 1 else ''}")
         except Exception as e:
             return tool_response(True, f"Failed to write todos: {e}")
 
