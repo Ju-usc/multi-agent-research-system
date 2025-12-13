@@ -4,15 +4,7 @@ from pathlib import Path
 import dspy
 from dspy.adapters.chat_adapter import ChatAdapter
 
-from config import (
-    BIG_MODEL,
-    SMALL_MODEL,
-    BIG_MODEL_MAX_TOKENS,
-    SMALL_MODEL_MAX_TOKENS,
-    TEMPERATURE,
-    resolve_model_config,
-    lm_kwargs_for,
-)
+from config import ModelConfig, lm_kwargs_for
 from tools import WebSearchTool, FileSystemTool, TodoListTool, SubagentTool, ParallelToolCall
 from utils import create_model_cli_parser
 
@@ -29,15 +21,16 @@ class Agent(dspy.Module):
     def __init__(
         self,
         *,
-        big_model: str = BIG_MODEL,
-        small_model: str = SMALL_MODEL,
-        temperature: float = TEMPERATURE,
-        big_max_tokens: int = BIG_MODEL_MAX_TOKENS,
-        small_max_tokens: int = SMALL_MODEL_MAX_TOKENS,
+        config: ModelConfig | None = None,
         work_dir: Path | str | None = None,
     ) -> None:
         super().__init__()
+        config = config or ModelConfig()
+
+        # Core tools
         self.web_search_tool = WebSearchTool()
+
+        # Use isolated work directory or default to shared "memory"
         if work_dir is None:
             work_dir = Path("memory")
         elif isinstance(work_dir, str):
@@ -45,20 +38,21 @@ class Agent(dspy.Module):
         self.fs_tool = FileSystemTool(root=work_dir)
         self.todo_list_tool = TodoListTool()
 
-        big_kwargs = lm_kwargs_for(big_model)
-        small_kwargs = lm_kwargs_for(small_model)
+        # Lead / subagent language models
+        lead_kwargs = lm_kwargs_for(config.lead)
+        sub_kwargs = lm_kwargs_for(config.sub)
 
         self.agent_lm = dspy.LM(
-            model=big_model,
-            temperature=temperature,
-            max_tokens=big_max_tokens,
-            **big_kwargs,
+            model=config.lead,
+            temperature=config.temperature,
+            max_tokens=config.lead_max_tokens,
+            **lead_kwargs,
         )
         self.subagent_lm = dspy.LM(
-            model=small_model,
-            temperature=temperature,
-            max_tokens=small_max_tokens,
-            **small_kwargs,
+            model=config.sub,
+            temperature=config.temperature,
+            max_tokens=config.sub_max_tokens,
+            **sub_kwargs,
         )
 
 
@@ -160,36 +154,21 @@ def parse_args():
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
     args = parse_args()
-    try:
-        preset = resolve_model_config(args.model, args.model_big, args.model_small)
-    except ValueError as error:
-        raise SystemExit(str(error)) from error
 
-    logger.info(
-        "Selected models | big=%s small=%s | big_max_tokens=%s | small_max_tokens=%s",
-        preset.big,
-        preset.small,
-        preset.big_max_tokens,
-        preset.small_max_tokens,
-    )
+    config = ModelConfig(lead=args.lead, sub=args.sub)
+    logger.info("Models | lead=%s sub=%s", config.lead, config.sub)
 
     dspy.configure(
         lm=dspy.LM(
-            model=preset.big,
-            temperature=TEMPERATURE,
-            max_tokens=preset.big_max_tokens,
-            **lm_kwargs_for(preset.big),
+            model=config.lead,
+            temperature=config.temperature,
+            max_tokens=config.lead_max_tokens,
+            **lm_kwargs_for(config.lead),
         ),
         adapter=ChatAdapter(),
     )
 
-    agent = Agent(
-        big_model=preset.big,
-        small_model=preset.small,
-        temperature=TEMPERATURE,
-        big_max_tokens=preset.big_max_tokens,
-        small_max_tokens=preset.small_max_tokens,
-    )
+    agent = Agent(config=config)
     result = agent(query=args.query)
     dspy.inspect_history(n=5)
 
