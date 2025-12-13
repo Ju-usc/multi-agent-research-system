@@ -18,12 +18,27 @@ PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
 
 # ========== MODEL CONFIGURATION ==========
 
-# Default models (placeholder - will revisit after analyzing feature/metric-eval branch)
-DEFAULT_LEAD_MODEL = "openai/gpt-5-mini"
-DEFAULT_SUB_MODEL = "openai/gpt-5-mini"
-DEFAULT_LEAD_MAX_TOKENS = 30000
-DEFAULT_SUB_MAX_TOKENS = 30000
+# Default models - based on feature/metrics-eval testing:
+# kimi-k2: Reliable tool calling, ~5-6 min/example, no stability issues
+# grok-4.1-fast: Very thorough (~30 searches), but slow (~29 min/example)
+# See MODEL_NOTES below for full testing results
+DEFAULT_LEAD_MODEL = "openrouter/moonshotai/kimi-k2:free"
+DEFAULT_SUB_MODEL = "openrouter/moonshotai/kimi-k2:free"
+DEFAULT_LEAD_MAX_TOKENS = 16000
+DEFAULT_SUB_MAX_TOKENS = 16000
 DEFAULT_TEMPERATURE = 1.0
+
+# Testing notes from feature/metrics-eval branch (for reference when choosing models):
+# ┌─────────────────────┬─────────────┬─────────────────────────────────────────────┐
+# │ Model               │ Recommended │ Notes                                       │
+# ├─────────────────────┼─────────────┼─────────────────────────────────────────────┤
+# │ kimi-k2             │ ✓ DEFAULT   │ Reliable, ~5-6 min, good speed/quality      │
+# │ grok-4.1-fast       │ ✓ Lead      │ Very thorough, ~29 min, best for quality    │
+# │ deepseek-v3.2       │ ✓ Paid      │ ~6.5 min, 8 searches, good balance          │
+# │ qwen3-coder         │ ~ Coding    │ Works, but coding-focused                   │
+# │ deepseek-r1t        │ ✗           │ Did NOT use websearch (0 calls)             │
+# │ glm-4.5-air         │ ✗           │ Unstable ("cannot schedule new futures")    │
+# └─────────────────────┴─────────────┴─────────────────────────────────────────────┘
 
 
 class ModelConfig:
@@ -93,6 +108,15 @@ WEBSEARCH_COST_PER_CALL_USD = float(os.getenv("WEBSEARCH_COST_PER_CALL_USD", "0.
 # Matches OpenAI/Anthropic/Google pricing display conventions
 # Note: Even when using free tier, we track AS IF paying for meaningful cost comparisons
 LM_PRICING = {
+    # === FREE TIER MODELS (OpenRouter) ===
+    # xAI Grok 4.1 Fast - free tier (best for quality/thoroughness)
+    "openrouter/x-ai/grok-4.1-fast:free": {
+        "input": 0.0,
+        "output": 0.0,
+        "cached_input": 0.0
+    },
+
+    # === PAID MODELS ===
     # OpenAI GPT-5 Models (Standard Tier - verified 2025)
     "openai/gpt-5-mini": {
         "input": 0.25,           # $0.25 per 1M tokens
