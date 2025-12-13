@@ -67,7 +67,8 @@ def test_browsecomp_program_wrapper():
             async def run(self, problem: str) -> str:
                 return f"Report for: {problem}"
 
-        program = BrowseCompProgram(FakeAgent())
+        program = BrowseCompProgram()  # Uses default preset
+        program.agent = FakeAgent()    # Replace with mock for testing
         assert hasattr(program, 'forward') and callable(program.forward)
 
 
@@ -116,7 +117,8 @@ def test_browsecomp_evaluation_framework():
                 return f"Report for: {problem}"
 
         with patch.object(_dspy, 'ChainOfThought', new=lambda *a, **k: _FakeJudge()):
-            program = BrowseCompProgram(FakeAgent())
+            program = BrowseCompProgram()  # Uses default preset
+            program.agent = FakeAgent()    # Replace with mock for testing
             dataset = [dspy.Example(problem="What is 2+2?", answer="4")]
             
             # Test the evaluation framework (minimal)

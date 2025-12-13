@@ -7,10 +7,11 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Iterable, Tuple
+from typing import Tuple
 
 from config import (
-    MODEL_PRESETS,
+    DEFAULT_LEAD_MODEL,
+    DEFAULT_SUB_MODEL,
     WORKSPACE_UUID_LENGTH,
     CLEANUP_WATCHDOG_TIMEOUT_SECONDS,
 )
@@ -19,29 +20,16 @@ from config import (
 def create_model_cli_parser(
     description: str,
     *,
-    include_list: bool = False,
     query: Tuple[str, str] | None = None,
 ) -> argparse.ArgumentParser:
     """Return an ArgumentParser with shared model arguments."""
     parser = argparse.ArgumentParser(description=description)
-    parser.add_argument(
-        "--model",
-        choices=sorted(MODEL_PRESETS.keys()),
-        help="Model preset to use for both big and small slots.",
-    )
-    parser.add_argument("--model-big", dest="model_big", help="Override the big model identifier.")
-    parser.add_argument("--model-small", dest="model_small", help="Override the small model identifier.")
-    if include_list:
-        parser.add_argument("--list-models", action="store_true", help="List available model presets and exit.")
+    parser.add_argument("--lead", default=DEFAULT_LEAD_MODEL, help="Lead agent model.")
+    parser.add_argument("--sub", default=DEFAULT_SUB_MODEL, help="Subagent model.")
     if query is not None:
         default, help_text = query
         parser.add_argument("--query", default=default, help=help_text)
     return parser
-
-
-def iter_model_presets() -> Iterable[tuple[str, Any]]:
-    """Yield model presets sorted by key."""
-    return sorted(MODEL_PRESETS.items())
 
 
 def create_isolated_workspace(base_dir: str = "memory_eval") -> Path:

@@ -14,20 +14,18 @@ from dspy.teleprompt import GEPA
 
 from agent import Agent
 from config import (
+    ModelConfig,
     LM_PRICING,
     WEBSEARCH_COST_PER_CALL_USD,
-    TEMPERATURE,
     GRADER_MODEL,
     GRADER_MAX_TOKENS,
     OPTIMIZER_MODEL,
     OPTIMIZER_MAX_TOKENS,
     lm_kwargs_for,
-    resolve_model_config,
 )
 from dataset import BrowseCompDataset
 from utils import (
     create_model_cli_parser,
-    iter_model_presets,
     start_cleanup_watchdog,
     create_isolated_workspace,
     cleanup_workspace,
@@ -56,21 +54,14 @@ class BrowseCompJudge(dspy.Signature):
 class BrowseCompProgram(dspy.Module):
     """
     DSPy program wrapper for Agent to make it compatible with dspy.Evaluate.
-    
+
     Agent is created as module attribute so GEPA can discover and optimize tools.
     Uses deepcopy() for thread-safe parallel evaluation.
     """
 
-    def __init__(self, big_model: str, small_model: str, big_max_tokens: int, small_max_tokens: int):
+    def __init__(self, config: ModelConfig | None = None):
         super().__init__()
-        self.agent = Agent(
-            big_model=big_model,
-            small_model=small_model,
-            temperature=TEMPERATURE,
-            big_max_tokens=big_max_tokens,
-            small_max_tokens=small_max_tokens,
-            work_dir="memory_eval/default",
-        )
+        self.agent = Agent(config=config, work_dir="memory_eval/default")
 
     def forward(self, problem: str) -> dspy.Prediction:
         work_dir = create_isolated_workspace()
@@ -244,7 +235,7 @@ class BrowseCompEvaluator:
         return predictions
 
 def _parse_args():
-    parser = create_model_cli_parser("Run BrowseComp evaluation", include_list=True)
+    parser = create_model_cli_parser("Run BrowseComp evaluation")
     parser.add_argument("--num-examples", type=int, default=10, help="Number of dataset examples")
     parser.add_argument("--num-threads", type=int, default=2, help="Parallel evaluation threads")
     parser.add_argument("--metric", choices=["efficiency", "accuracy"], default="efficiency")
@@ -257,13 +248,6 @@ def _parse_args():
 
 def main() -> None:
     args = _parse_args()
-
-    if getattr(args, "list_models", False):
-        print("Available presets:")
-        for name, preset in iter_model_presets():
-            print(f"- {name}: big={preset.big}, small={preset.small}")
-        return
-
     logging.basicConfig(level=logging.INFO)
 
     print("🔍 BrowseComp Evaluation")
@@ -271,37 +255,33 @@ def main() -> None:
     print(f"⚖️  Grader model: {GRADER_MODEL} (fixed for consistency)")
     print("=" * 50)
 
-    # Configure DSPy and prepare agent
-    config = resolve_model_config(args.model, args.model_big, args.model_small)
-    
+    # Build config from CLI args
+    config = ModelConfig(lead=args.lead, sub=args.sub)
+    print(f"🤖 Models: lead={config.lead}, sub={config.sub}")
+
     if dspy.settings.lm is None:
         dspy.configure(
             lm=dspy.LM(
-                model=config.big,
-                temperature=TEMPERATURE,
-                max_tokens=config.big_max_tokens,
-                **lm_kwargs_for(config.big),
+                model=config.lead,
+                temperature=config.temperature,
+                max_tokens=config.lead_max_tokens,
+                **lm_kwargs_for(config.lead),
             ),
             adapter=ChatAdapter(),
         )
-    
+
     dspy.settings.configure(track_usage=True)
-    
+
     # Initialize evaluator with grader and optimizer LMs
     evaluator = BrowseCompEvaluator(args)
-    
+
     # Load dataset
     dataset = BrowseCompDataset(num_examples=args.num_examples)
     examples = dataset.load()
     print(f"📚 Loaded {len(examples)} examples")
 
     # Create agent program
-    program = BrowseCompProgram(
-        big_model=config.big,
-        small_model=config.small,
-        big_max_tokens=config.big_max_tokens,
-        small_max_tokens=config.small_max_tokens,
-    )
+    program = BrowseCompProgram(config=config)
 
     # GEPA optimization if requested
     if args.optimize:
