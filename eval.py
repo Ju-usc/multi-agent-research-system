@@ -79,7 +79,11 @@ class BrowseCompProgram(dspy.Module):
             # Use DSPy's built-in deepcopy to preserve optimized tool descriptions
             agent = self.agent.deepcopy()
             agent.fs_tool.root = Path(work_dir)  # Update filesystem root
-            agent.web_search_tool.call_count = 0
+            
+            # Get the actual web_search_tool used by subagents (may differ after deepcopy)
+            # DSPy's shallow copy of subagent_tools means the func reference is preserved
+            actual_ws_tool = agent.subagent_tools["web_search"].func
+            actual_ws_tool.call_count = 0
 
             start = time.perf_counter()
             prediction = agent(problem)
@@ -87,7 +91,7 @@ class BrowseCompProgram(dspy.Module):
             
             prediction.report = prediction.answer
             prediction.elapsed_seconds = elapsed
-            prediction.websearch_calls = agent.web_search_tool.call_count
+            prediction.websearch_calls = actual_ws_tool.call_count
             
             return prediction
         finally:
@@ -117,8 +121,13 @@ class BrowseCompEvaluator:
                 **lm_kwargs_for(OPTIMIZER_MODEL),
             )
     
-    def judge_prediction(self, example: dspy.Example, pred: dspy.Prediction) -> float:
-        """Judge single prediction using initialized grader LM."""
+    def judge_prediction(self, example: dspy.Example, pred: dspy.Prediction) -> tuple[float, dict]:
+        """Judge single prediction using initialized grader LM.
+        
+        Returns:
+            tuple: (score, judge_result_dict) where judge_result_dict contains
+                   extracted_answer, reasoning, is_correct for diagnostic use
+        """
         try:
             with dspy.context(lm=self.grader_lm):
                 result = self.judge(
@@ -126,14 +135,20 @@ class BrowseCompEvaluator:
                     report=pred.report,
                     correct_answer=example.answer
                 )
-            return 1.0 if result.is_correct else 0.0
+            score = 1.0 if result.is_correct else 0.0
+            result_dict = {
+                "extracted_answer": result.extracted_answer,
+                "reasoning": result.reasoning,
+                "is_correct": result.is_correct,
+            }
+            return score, result_dict
         except Exception as e:
             logger.error(f"Evaluation error: {e}")
-            return 0.0
+            return 0.0, {"extracted_answer": "ERROR", "reasoning": str(e), "is_correct": False}
     
     def calculate_metrics(self, example: dspy.Example, pred: dspy.Prediction) -> dict:
         """Calculate all metrics (accuracy, cost, time) for a prediction."""
-        accuracy = self.judge_prediction(example, pred)
+        accuracy, _ = self.judge_prediction(example, pred)
         usage = pred.get_lm_usage() or {}
         lm_cost = calculate_lm_cost(usage)
         web_cost = pred.websearch_calls * WEBSEARCH_COST_PER_CALL_USD
@@ -151,16 +166,22 @@ class BrowseCompEvaluator:
             "efficiency_temp": accuracy / (max(1e-6, elapsed) * max(1e-6, total_cost)) if accuracy > 0 else 0.0,
         }
     
-    def accuracy_metric(self, example: dspy.Example, pred: dspy.Prediction, trace=None, pred_name=None, pred_trace=None) -> float:
-        """DSPy metric: returns accuracy only.
+    def accuracy_metric(self, example: dspy.Example, pred: dspy.Prediction, trace=None, pred_name=None, pred_trace=None):
+        """DSPy metric for accuracy. Returns float or Prediction with feedback for GEPA.
         
-        GEPA requires 5 arguments: (gold, pred, trace, pred_name, pred_trace).
-        - pred_name=None: program-level scoring (return float)
-        - pred_name set: predictor-level scoring (can return Prediction with feedback)
+        - pred_name=None: return float score (module-level)
+        - pred_name set: return Prediction with feedback (predictor-level for GEPA)
         """
-        return self.judge_prediction(example, pred)
+        score, judge_result = self.judge_prediction(example, pred)
+        
+        if pred_name is None:
+            return score
+        
+        # GEPA wants feedback for predictor-level optimization
+        feedback = f"Expected: {example.answer}\nGot: {judge_result['extracted_answer']}\nReasoning: {judge_result['reasoning']}"
+        return dspy.Prediction(score=score, feedback=feedback)
 
-    def efficiency_metric(self, example: dspy.Example, pred: dspy.Prediction, trace=None, pred_name=None, pred_trace=None) -> float:
+    def efficiency_metric(self, example: dspy.Example, pred: dspy.Prediction, trace=None, pred_name=None, pred_trace=None):
         """DSPy metric: returns accuracy, stores full metrics in prediction.
         
         GEPA requires 5 arguments: (gold, pred, trace, pred_name, pred_trace).
@@ -171,7 +192,7 @@ class BrowseCompEvaluator:
     
     def optimize_with_gepa(self, program: BrowseCompProgram, train: list) -> BrowseCompProgram:
         """Run GEPA optimization on program."""
-        metric_fn = self.efficiency_metric if self.args.metric == "efficiency" else self.accuracy_metric
+        metric_fn = self.accuracy_metric
         
         optimizer = GEPA(
             metric=metric_fn,

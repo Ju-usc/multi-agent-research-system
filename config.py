@@ -92,6 +92,16 @@ MODEL_PRESETS: Final[dict[str, ModelPreset]] = {
     
     # === PAID MODELS (via OpenRouter) ===
     
+    # DeepSeek V3.2 - GPT-5 class reasoning, agentic tool-use, 164K context
+    # Released Dec 1, 2025. IMO/IOI gold medal level. DSA sparse attention.
+    # TESTED: Tool calling works. ~6.5 min/example, 8 websearches. Paid model.
+    "deepseek-v3.2": ModelPreset(
+        big="openrouter/deepseek/deepseek-v3.2",
+        small="openrouter/deepseek/deepseek-v3.2",
+        big_max_tokens=16000,
+        small_max_tokens=16000,
+    ),
+    
     # MiniMax M2 - Strong on BrowseComp, agentic workflows
     # TESTED: Tool calling works. Untested on full BrowseComp eval.
     "minimax-m2": ModelPreset(
@@ -204,10 +214,10 @@ TEMPERATURE = 1.0
 # to eliminate judge/optimizer variance as a confounding variable.
 # Using Grok 4.1 Fast: thorough, high reasoning quality, free tier
 GRADER_MODEL: Final[str] = "openrouter/x-ai/grok-4.1-fast:free"  # Judges answer correctness
-GRADER_MAX_TOKENS: Final[int] = 16000
+GRADER_MAX_TOKENS: Final[int] = 40000  # Grader needs room for detailed reasoning
 
 OPTIMIZER_MODEL: Final[str] = "openrouter/x-ai/grok-4.1-fast:free"  # GEPA prompt optimization
-OPTIMIZER_MAX_TOKENS: Final[int] = 16000  # Grok 4.1 Fast free tier limit
+OPTIMIZER_MAX_TOKENS: Final[int] = 40000  # GEPA reflection needs room for analysis
 
 # ========== COST CONFIGURATION ==========
 
@@ -257,6 +267,12 @@ LM_PRICING: Final[dict[str, dict[str, float]]] = {
     
     # === PAID MODELS ===
     
+    # DeepSeek V3.2 (released Dec 1, 2025)
+    "openrouter/deepseek/deepseek-v3.2": {
+        "input": 0.28,
+        "output": 0.40,
+        "cached_input": 0.028
+    },
     # MiniMax M2
     "openrouter/minimax/minimax-m2": {
         "input": 0.255,
