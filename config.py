@@ -24,8 +24,12 @@ PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
 # See MODEL_NOTES below for full testing results
 DEFAULT_LEAD_MODEL = "openrouter/moonshotai/kimi-k2:free"
 DEFAULT_SUB_MODEL = "openrouter/moonshotai/kimi-k2:free"
+DEFAULT_GRADER_MODEL = "openai/gpt-5"
+DEFAULT_REFLECTOR_MODEL = "openai/gpt-5"
 DEFAULT_LEAD_MAX_TOKENS = 16000
 DEFAULT_SUB_MAX_TOKENS = 16000
+DEFAULT_GRADER_MAX_TOKENS = 16000
+DEFAULT_REFLECTOR_MAX_TOKENS = 32000
 DEFAULT_TEMPERATURE = 1.0
 
 # Testing notes from feature/metrics-eval branch (for reference when choosing models):
@@ -42,19 +46,27 @@ DEFAULT_TEMPERATURE = 1.0
 
 
 class ModelConfig:
-    """Model configuration bundle for lead agent and subagents."""
+    """Model configuration bundle for lead agent, subagents, grader, and reflector."""
     def __init__(
         self,
         lead: str = DEFAULT_LEAD_MODEL,
         sub: str = DEFAULT_SUB_MODEL,
+        grader: str = DEFAULT_GRADER_MODEL,
+        reflector: str = DEFAULT_REFLECTOR_MODEL,
         lead_max_tokens: int = DEFAULT_LEAD_MAX_TOKENS,
         sub_max_tokens: int = DEFAULT_SUB_MAX_TOKENS,
+        grader_max_tokens: int = DEFAULT_GRADER_MAX_TOKENS,
+        reflector_max_tokens: int = DEFAULT_REFLECTOR_MAX_TOKENS,
         temperature: float = DEFAULT_TEMPERATURE,
     ):
         self.lead = lead
         self.sub = sub
+        self.grader = grader
+        self.reflector = reflector
         self.lead_max_tokens = lead_max_tokens
         self.sub_max_tokens = sub_max_tokens
+        self.grader_max_tokens = grader_max_tokens
+        self.reflector_max_tokens = reflector_max_tokens
         self.temperature = temperature
 
 
@@ -91,15 +103,6 @@ WORKSPACE_UUID_LENGTH = 8  # Characters from UUID for directory naming
 # Cleanup watchdog
 CLEANUP_WATCHDOG_TIMEOUT_SECONDS = 30  # Force exit if DSPy/LiteLLM cleanup hangs
 
-# ========== EVALUATION MODELS (Fixed for experimental consistency) ==========
-# These models are used for evaluation/optimization across all experiments
-# to eliminate judge/optimizer variance as a confounding variable.
-GRADER_MODEL = "openai/gpt-5"  # Judges answer correctness
-GRADER_MAX_TOKENS = 16000  # Large budget for reasoning chains
-
-OPTIMIZER_MODEL = "openai/gpt-5"  # GEPA prompt optimization
-OPTIMIZER_MAX_TOKENS = 32000  # Large budget for prompt refinement
-
 # ========== COST CONFIGURATION ==========
 
 WEBSEARCH_COST_PER_CALL_USD = float(os.getenv("WEBSEARCH_COST_PER_CALL_USD", "0.005"))
@@ -108,16 +111,22 @@ WEBSEARCH_COST_PER_CALL_USD = float(os.getenv("WEBSEARCH_COST_PER_CALL_USD", "0.
 # Matches OpenAI/Anthropic/Google pricing display conventions
 # Note: Even when using free tier, we track AS IF paying for meaningful cost comparisons
 LM_PRICING = {
-    # === FREE TIER MODELS (OpenRouter) ===
-    # xAI Grok 4.1 Fast - free tier (best for quality/thoroughness)
+    # === FREE TIER MODELS (OpenRouter) - priced "as-if paid" for meaningful comparisons ===
+    # xAI Grok 4.1 Fast
     "openrouter/x-ai/grok-4.1-fast:free": {
-        "input": 0.0,
-        "output": 0.0,
-        "cached_input": 0.0
+        "input": 0.20,           # $0.20 per 1M tokens (paid rate)
+        "output": 0.50,          # $0.50 per 1M tokens (paid rate)
+        "cached_input": 0.02     # estimated 90% cache discount
+    },
+    # Moonshot Kimi K2
+    "openrouter/moonshotai/kimi-k2:free": {
+        "input": 0.60,           # $0.60 per 1M tokens (paid rate)
+        "output": 2.50,          # $2.50 per 1M tokens (paid rate)
+        "cached_input": 0.15     # $0.15 per 1M tokens (75% cache discount)
     },
 
     # === PAID MODELS ===
-    # OpenAI GPT-5 Models (Standard Tier - verified 2025)
+    # OpenAI GPT-5 Models (Standard Tier)
     "openai/gpt-5-mini": {
         "input": 0.25,           # $0.25 per 1M tokens
         "output": 2.00,          # $2.00 per 1M tokens
@@ -128,25 +137,16 @@ LM_PRICING = {
         "output": 10.00,         # $10.00 per 1M tokens
         "cached_input": 0.125    # $0.125 per 1M tokens (90% discount)
     },
-    
-    # DeepSeek v3.1 (verified 2025 - OpenRouter free tier uses same pricing)
-    "openrouter/deepseek/deepseek-chat-v3.1:free": {
-        "input": 0.28,           # $0.28 per 1M tokens (cache miss)
-        "output": 0.42,          # $0.42 per 1M tokens
-        "cached_input": 0.028    # $0.028 per 1M tokens (cache hit, 90% discount)
+    # DeepSeek V3.2 (via OpenRouter)
+    "openrouter/deepseek/deepseek-v3.2": {
+        "input": 0.25,           # $0.25 per 1M tokens
+        "output": 0.38,          # $0.38 per 1M tokens
+        "cached_input": 0.025    # estimated 90% cache discount
     },
-    
-    # Moonshot Kimi K2 (verified 2025)
-    "openrouter/moonshotai/kimi-k2:free": {
-        "input": 0.60,           # $0.60 per 1M tokens (cache miss)
-        "output": 2.50,          # $2.50 per 1M tokens
-        "cached_input": 0.15     # $0.15 per 1M tokens (cache hit, 75% discount)
-    },
-    
-    # Qwen3 Coder (verified 2025 - OpenRouter pricing)
-    "openrouter/qwen/qwen3-coder:free": {
-        "input": 0.22,           # $0.22 per 1M tokens
-        "output": 0.95,          # $0.95 per 1M tokens
-        "cached_input": 0.22     # $0.22 per 1M tokens (no separate cache discount)
+    # DeepSeek V3.2 Speciale - high-compute variant for max reasoning
+    "openrouter/deepseek/deepseek-v3.2-speciale": {
+        "input": 0.27,           # $0.27 per 1M tokens
+        "output": 0.41,          # $0.41 per 1M tokens
+        "cached_input": 0.027    # estimated 90% cache discount
     }
 }
