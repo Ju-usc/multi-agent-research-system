@@ -2,7 +2,7 @@
 Tests for BrowseComp evaluation metrics.
 
 Tests the BrowseCompEvaluator class methods for calculating accuracy,
-efficiency, and cost metrics from agent predictions.
+and cost metrics from agent predictions.
 """
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -41,12 +41,7 @@ def evaluator(mock_config, monkeypatch):
 
     monkeypatch.setattr("eval.lm_kwargs_for", lambda model_id: {})
 
-    evaluator = BrowseCompEvaluator(
-        config=mock_config,
-        metric="efficiency",
-        num_threads=1,
-        optimize=False,
-    )
+    evaluator = BrowseCompEvaluator(config=mock_config, num_threads=1)
     evaluator.judge = mock_judge
     return evaluator
 
@@ -152,7 +147,6 @@ def test_calculate_metrics_correct_answer(evaluator):
     assert metrics["web_cost_usd"] == pytest.approx(WEBSEARCH_COST_PER_CALL_USD)
     assert metrics["total_cost_usd"] == pytest.approx(0.00125 + WEBSEARCH_COST_PER_CALL_USD)
     assert metrics["websearch_calls"] == 1
-    assert "efficiency_temp" in metrics
 
 
 def test_calculate_metrics_incorrect_answer(evaluator):
@@ -168,24 +162,10 @@ def test_calculate_metrics_incorrect_answer(evaluator):
     metrics = evaluator.calculate_metrics(example, pred)
 
     assert metrics["accuracy"] == 0.0
-    assert metrics["efficiency_temp"] == 0.0
 
 
-def test_accuracy_metric(evaluator):
-    """Test _accuracy_metric returns judge result."""
-    example = dspy.Example(problem="Q", answer="A")
-    pred = dspy.Prediction(report="A")
-
-    evaluator.judge_prediction = MagicMock(return_value=1.0)
-
-    score = evaluator._accuracy_metric(example, pred)
-
-    assert score == 1.0
-    evaluator.judge_prediction.assert_called_once_with(example, pred)
-
-
-def test_efficiency_metric_stores_metrics(evaluator):
-    """Test _efficiency_metric stores full metrics in prediction."""
+def test_metric_returns_accuracy_and_stores_metrics(evaluator):
+    """Test metric() returns accuracy and stores full metrics in prediction."""
     example = dspy.Example(problem="Q", answer="A")
     pred = dspy.Prediction(report="A")
     pred.elapsed_seconds = 1.0
@@ -195,16 +175,15 @@ def test_efficiency_metric_stores_metrics(evaluator):
     expected_metrics = {
         "accuracy": 1.0,
         "elapsed_seconds": 1.0,
-        "total_cost_usd": 0.01,
+        "total_cost_usd": 0.005,
         "lm_cost_usd": 0.0,
-        "web_cost_usd": 0.01,
+        "web_cost_usd": 0.005,
         "websearch_calls": 1,
         "lm_usage": {},
-        "efficiency_temp": 100.0,
     }
     evaluator.calculate_metrics = MagicMock(return_value=expected_metrics)
 
-    score = evaluator._efficiency_metric(example, pred)
+    score = evaluator.metric(example, pred)
 
     assert score == 1.0
     assert pred.metrics == expected_metrics
@@ -220,17 +199,3 @@ def test_judge_prediction_error_handling(evaluator):
     score = evaluator.judge_prediction(example, pred)
 
     assert score == 0.0
-
-
-def test_get_metric_fn_efficiency(evaluator):
-    """Test get_metric_fn returns efficiency metric when configured."""
-    evaluator.metric = "efficiency"
-    metric_fn = evaluator.get_metric_fn()
-    assert metric_fn == evaluator._efficiency_metric
-
-
-def test_get_metric_fn_accuracy(evaluator):
-    """Test get_metric_fn returns accuracy metric when configured."""
-    evaluator.metric = "accuracy"
-    metric_fn = evaluator.get_metric_fn()
-    assert metric_fn == evaluator._accuracy_metric

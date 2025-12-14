@@ -118,17 +118,12 @@ class BrowseCompEvaluator:
     def __init__(
         self,
         config: ModelConfig,
-        metric: str = "efficiency",
         num_threads: int = 2,
-        optimize: bool = False,
         optimize_steps: int = 10,
     ):
         self.config = config
-        self.metric = metric
         self.num_threads = num_threads
-        self.optimize = optimize
         self.optimize_steps = optimize_steps
-        self.reflection_lm = None
 
         # Initialize grader LM once for all evaluations (major efficiency improvement)
         self.grader_lm = dspy.LM(
@@ -139,14 +134,13 @@ class BrowseCompEvaluator:
         )
         self.judge = dspy.ChainOfThought(BrowseCompJudge)
 
-        # Initialize reflection LM for GEPA optimization if needed
-        if optimize:
-            self.reflection_lm = dspy.LM(
-                model=config.reflector,
-                temperature=1.0,  # Higher temp for creative prompt mutations
-                max_tokens=config.reflector_max_tokens,
-                **lm_kwargs_for(config.reflector),
-            )
+        # Initialize reflection LM for GEPA optimization
+        self.reflection_lm = dspy.LM(
+            model=config.reflector,
+            temperature=1.0,
+            max_tokens=config.reflector_max_tokens,
+            **lm_kwargs_for(config.reflector),
+        )
     
     def judge_prediction(self, example: dspy.Example, pred: dspy.Prediction) -> float:
         """Judge single prediction using initialized grader LM."""
@@ -166,34 +160,23 @@ class BrowseCompEvaluator:
         """Calculate all metrics (accuracy, cost, time) for a prediction."""
         accuracy = self.judge_prediction(example, pred)
         usage = pred.get_lm_usage() or {}
-        lm_cost = calculate_lm_cost(usage)
-        web_cost = pred.websearch_calls * WEBSEARCH_COST_PER_CALL_USD
+        lm_cost_usd = calculate_lm_cost(usage)
+        web_cost_usd = pred.websearch_calls * WEBSEARCH_COST_PER_CALL_USD
         elapsed = pred.elapsed_seconds
-        total_cost = lm_cost + web_cost
-        
+        total_cost_usd = lm_cost_usd + web_cost_usd
+
         return {
             "accuracy": accuracy,
             "elapsed_seconds": elapsed,
-            "total_cost_usd": total_cost,
-            "lm_cost_usd": lm_cost,
-            "web_cost_usd": web_cost,
+            "total_cost_usd": total_cost_usd,
+            "lm_cost_usd": lm_cost_usd,
+            "web_cost_usd": web_cost_usd,
             "websearch_calls": pred.websearch_calls,
             "lm_usage": usage,
-            "efficiency_temp": accuracy / (max(1e-6, elapsed) * max(1e-6, total_cost)) if accuracy > 0 else 0.0,
         }
     
-    def get_metric_fn(self):
-        """Return the appropriate metric function based on configuration."""
-        if self.metric == "efficiency":
-            return self._efficiency_metric
-        return self._accuracy_metric
-
-    def _accuracy_metric(self, example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
-        """DSPy metric: returns accuracy only."""
-        return self.judge_prediction(example, pred)
-
-    def _efficiency_metric(self, example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
-        """DSPy metric: returns accuracy, stores full metrics in prediction."""
+    def metric(self, example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
+        """DSPy metric for evaluation. Returns accuracy and stores full metrics."""
         metrics = self.calculate_metrics(example, pred)
         pred.metrics = metrics
         return metrics["accuracy"]
@@ -201,7 +184,7 @@ class BrowseCompEvaluator:
     def optimize_with_gepa(self, program: BrowseCompProgram, train: list) -> BrowseCompProgram:
         """Run GEPA optimization on program."""
         optimizer = GEPA(
-            metric=self.get_metric_fn(),
+            metric=self.metric,
             reflection_lm=self.reflection_lm,
             max_full_evals=self.optimize_steps,
             num_threads=self.num_threads,
@@ -217,10 +200,9 @@ class BrowseCompEvaluator:
     def run(self, program: BrowseCompProgram, examples: list) -> tuple:
         """Run evaluation and return (result, predictions)."""
         predictions_dict = {}
-        metric_fn = self.get_metric_fn()
 
         def metric_with_capture(example, pred, trace=None):
-            score = metric_fn(example, pred, trace)
+            score = self.metric(example, pred, trace)
             predictions_dict[example.problem] = pred
             return score
 
@@ -253,7 +235,6 @@ def _parse_args():
     parser = create_model_cli_parser("Run BrowseComp evaluation")
     parser.add_argument("--num-examples", type=int, default=10, help="Number of dataset examples")
     parser.add_argument("--num-threads", type=int, default=2, help="Parallel evaluation threads")
-    parser.add_argument("--metric", choices=["efficiency", "accuracy"], default="efficiency")
     parser.add_argument("--optimize", action="store_true", help="Run GEPA optimization")
     parser.add_argument("--optimize-steps", type=int, default=10)
     parser.add_argument("--train-size", type=float, default=0.7)
@@ -286,12 +267,10 @@ def main() -> None:
 
     dspy.settings.configure(track_usage=True)
 
-    # Initialize evaluator with grader and optimizer LMs
+    # Initialize evaluator
     evaluator = BrowseCompEvaluator(
         config=config,
-        metric=args.metric,
         num_threads=args.num_threads,
-        optimize=args.optimize,
         optimize_steps=args.optimize_steps,
     )
 
@@ -328,7 +307,7 @@ def main() -> None:
     start_cleanup_watchdog(grace_period_seconds=30)
 
     print("\n" + "=" * 50)
-    print(f"📈 {args.metric.title()} Score: {result.score:.4f}")
+    print(f"📈 Accuracy Score: {result.score:.4f}")
     print(f"📊 Examples: {len(examples)}")
     if args.optimize:
         print(f"🧬 Optimized with GEPA ({args.optimize_steps} steps)")
