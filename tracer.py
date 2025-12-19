@@ -17,6 +17,7 @@ Config (env vars):
 """
 
 import functools
+import inspect
 import json
 import os
 import time
@@ -41,6 +42,13 @@ _stack: ContextVar[list] = ContextVar("stack", default=[])
 def trace(func):
     """Decorator to trace function calls."""
     name = func.__qualname__  # e.g., "Agent.forward" or "my_function"
+    
+    # Detect if first param is self/cls using inspect (reliable, no heuristics)
+    try:
+        params = list(inspect.signature(func).parameters.keys())
+        skip_first = params and params[0] in ("self", "cls")
+    except (ValueError, TypeError):
+        skip_first = False
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
@@ -53,9 +61,9 @@ def trace(func):
         parent_id = stack[-1]["id"] if stack else None
         depth = len(stack)
 
-        # Prepare args (skip self for methods)
+        # Prepare args (skip self/cls for methods)
         log_args = kwargs.copy()
-        start = 1 if "." in name else 0  # skip self if method
+        start = 1 if skip_first else 0
         for i, a in enumerate(args[start:]):
             log_args[f"arg{i}"] = a
 
@@ -111,6 +119,10 @@ def _emit(event, name, call_id, parent_id, depth, args=None, ms=None, error=None
             print(f"[{time_str}] {indent}<- {name} [{ms:.0f}ms] {status}{result_preview}")
 
     # File output (all levels) - single atomic write for thread safety
+    # Note: We don't wrap in try/except. If file path is invalid or disk full,
+    # it's acceptable to crash - this is a dev tool and clear errors are better
+    # than silent failures. The traced functions don't contain secrets (only
+    # research queries and results), so no security concern with full output.
     if TRACE_LOG:
         Path(TRACE_LOG).parent.mkdir(parents=True, exist_ok=True)
         lines = []
