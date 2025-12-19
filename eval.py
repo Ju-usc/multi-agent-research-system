@@ -6,7 +6,6 @@ Evaluates the multi-agent research system on BrowseComp using DSPy's built-in ev
 
 import time
 import logging
-from pathlib import Path
 
 import dspy
 from dspy.adapters.chat_adapter import ChatAdapter
@@ -20,7 +19,6 @@ from config import (
     lm_kwargs_for,
 )
 from dataset import BrowseCompDataset
-from tracking import PerModuleUsageTracker
 from utils import (
     create_model_cli_parser,
     start_cleanup_watchdog,
@@ -62,21 +60,18 @@ class BrowseCompProgram(dspy.Module):
 
     def forward(self, problem: str) -> dspy.Prediction:
         work_dir = create_isolated_workspace()
-        tracker = PerModuleUsageTracker()
 
         try:
             agent = self.agent.deepcopy()
             agent.reset_workspace(work_dir)
 
             start = time.perf_counter()
-            with dspy.context(callbacks=[tracker]):
-                prediction = agent(problem)
+            prediction = agent(problem)
             elapsed = time.perf_counter() - start
 
             prediction.report = prediction.answer
             prediction.elapsed_seconds = elapsed
             prediction.websearch_calls = agent.web_search_tool.call_count
-            prediction.usage_by_module = tracker.get_usage()
 
             return prediction
         finally:
@@ -99,8 +94,8 @@ def calculate_lm_cost(usage: dict) -> float:
         prompt_tokens = stats.get("prompt_tokens", 0)
         completion_tokens = stats.get("completion_tokens", 0)
         prompt_details = stats.get("prompt_tokens_details", {})
-        cached_tokens = prompt_details.get("cached_tokens", 0)
-        non_cached_input = prompt_tokens - cached_tokens
+        cached_tokens = min(prompt_details.get("cached_tokens", 0), prompt_tokens)
+        non_cached_input = max(0, prompt_tokens - cached_tokens)
 
         # Pricing is per 1M tokens, so divide by 1,000,000
         input_cost = (non_cached_input / 1_000_000) * pricing.get("input", 0.0)
@@ -285,7 +280,7 @@ def main() -> None:
     # GEPA optimization if requested
     if args.optimize:
         print(f"\n🧬 GEPA Optimization ({args.optimize_steps} steps)")
-        print(f"🤖 Using reflection model: {config.optimizer}")
+        print(f"🤖 Using reflector model: {config.reflector}")
         train, test = dataset.split(train_size=args.train_size)
         print(f"📊 Split: {len(train)} train, {len(test)} test")
         

@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from config import (
+from config import (  # noqa: E402
     ModelConfig,
     DEFAULT_LEAD_MODEL,
     DEFAULT_SUB_MODEL,

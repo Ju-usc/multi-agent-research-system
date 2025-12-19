@@ -49,6 +49,7 @@ class ModelConfig:
     """Model configuration bundle for lead agent, subagents, grader, and reflector."""
     def __init__(
         self,
+        *,  # Force all params to be keyword-only
         lead: str = DEFAULT_LEAD_MODEL,
         sub: str = DEFAULT_SUB_MODEL,
         grader: str = DEFAULT_GRADER_MODEL,
