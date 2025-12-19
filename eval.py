@@ -93,7 +93,7 @@ def calculate_lm_cost(usage: dict) -> float:
 
         prompt_tokens = stats.get("prompt_tokens", 0)
         completion_tokens = stats.get("completion_tokens", 0)
-        prompt_details = stats.get("prompt_tokens_details") or {}
+        prompt_details = stats.get("prompt_tokens_details", {})
         cached_tokens = prompt_details.get("cached_tokens", 0)
         non_cached_input = prompt_tokens - cached_tokens
 
