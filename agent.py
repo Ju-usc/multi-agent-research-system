@@ -18,7 +18,6 @@ class AgentSignature(dspy.Signature):
     answer: str = dspy.OutputField(desc="Answer to the query")
 
 
-@trace
 class Agent(dspy.Module):
     def __init__(
         self,
@@ -124,6 +123,7 @@ class Agent(dspy.Module):
             tools=list(self.lead_agent_tools.values()),
         )
 
+    @trace
     def forward(self, query: str) -> dspy.Prediction:
         return self.lead_agent(query=query)
 

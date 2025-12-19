@@ -34,26 +34,21 @@ def test_trace_function(tracer_with_file):
     assert any(r.get("event") == "exit" for r in records)
 
 
-def test_trace_class(tracer_with_file):
-    """@trace on class: wraps methods and __call__."""
+def test_trace_method(tracer_with_file):
+    """@trace on method: wraps method and tracks class name."""
     tracer, log_file = tracer_with_file
 
-    @tracer.trace
     class Calculator:
+        @tracer.trace
         def add(self, a, b):
             return a + b
 
-        def __call__(self, x):
-            return x * 2
-
     calc = Calculator()
     assert calc.add(2, 3) == 5
-    assert calc(10) == 20
 
     records = [json.loads(line) for line in log_file.read_text().strip().split("\n")]
     names = [r.get("name", "") for r in records]
-    assert any("add" in n for n in names)
-    assert any("__call__" in n for n in names)
+    assert any("Calculator.add" in n for n in names)
 
 
 def test_trace_hierarchy(tracer_with_file):

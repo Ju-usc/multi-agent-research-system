@@ -35,7 +35,6 @@ def tool_response(is_error: bool, message: str) -> str:
 
 # ---------- WebSearch ----------
 
-@trace
 class WebSearchTool:
     """Perplexity search supporting up to 5 queries (max 20 results)."""
 
@@ -46,6 +45,7 @@ class WebSearchTool:
         self.client = Perplexity(api_key=PERPLEXITY_API_KEY)
         self.call_count = 0
 
+    @trace
     def __call__(
         self,
         queries: list[str],
@@ -76,7 +76,6 @@ class WebSearchTool:
 
         return tool_response(False, "\n\n".join(lines))
 
-@trace
 class ParallelToolCall:
     """Run multiple tool invocations concurrently."""
 
@@ -84,6 +83,7 @@ class ParallelToolCall:
         self.tools = tools
         self._num_threads = num_threads
 
+    @trace
     def __call__(self, calls: list[dict]) -> list[str]:
         if not calls:
             return []
@@ -109,7 +109,6 @@ class ParallelToolCall:
 
 # ---------- FileSystem ----------
 
-@trace
 class FileSystemTool:
     """Sandboxed file system for research artifacts."""
 
@@ -117,21 +116,25 @@ class FileSystemTool:
         self.root = Path(root) if isinstance(root, str) else root
         self.root.mkdir(parents=True, exist_ok=True)
 
+    @trace
     def write(self, path: str, content: str) -> str:
         file_path = self.root / path
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content)
         return tool_response(False, f"Written to {path}")
 
+    @trace
     def read(self, path: str) -> str:
         file_path = self.root / path
         if not file_path.exists():
             return tool_response(True, f"File not found: {path}. The subagent may have returned artifact_path without actually writing the file.")
         return tool_response(False, file_path.read_text())
 
+    @trace
     def exists(self, path: str) -> bool:
         return (self.root / path).exists()
 
+    @trace
     def tree(self, max_depth: Optional[int] = FILESYSTEM_TREE_MAX_DEPTH) -> str:
         paths: list[str] = []
         self._collect_paths(self.root, "", paths, max_depth, 0)
@@ -166,13 +169,13 @@ class FileSystemTool:
 
 # ---------- TodoList ----------
 
-@trace
 class TodoListTool:
     """Run-scoped todo store."""
 
     def __init__(self) -> None:
         self._todos: list[Todo] = []
 
+    @trace
     def write(self, todos: list[Todo]) -> str:
         try:
             self._todos = todos
@@ -181,6 +184,7 @@ class TodoListTool:
         except Exception as e:
             return tool_response(True, f"Failed to write todos: {e}")
 
+    @trace
     def read(self) -> str:
         try:
             todos_json = json.dumps([t.model_dump() for t in self._todos], indent=2)
@@ -191,7 +195,6 @@ class TodoListTool:
 
 # ---------- SubagentTool ----------
 
-@trace
 class SubagentTool:
     """Execute a single subagent research task via ReAct."""
 
@@ -200,6 +203,7 @@ class SubagentTool:
         self._lm = lm
         self._adapter = adapter
 
+    @trace
     def __call__(self, task: SubagentTask) -> str:
         """Execute task and return SubagentResult JSON."""
         current_instructions = ExecuteSubagentTask.instructions

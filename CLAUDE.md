@@ -253,15 +253,12 @@ TRACE_LEVEL=debug TRACE_LOG=logs/run.jsonl uv run python agent.py --query "..."
 ```python
 from tracer import trace
 
-@trace
 class MyClass:
+    @trace
     def method(self): ...
 
 @trace
 def standalone_function(): ...
-
-@trace(exclude=["noisy_method"])  # Skip specific methods
-class SelectiveClass: ...
 ```
 
 ## General Workflow
