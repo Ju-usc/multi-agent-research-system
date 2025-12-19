@@ -117,6 +117,84 @@ The example stores the run at `logs/trace-ai-collab.log`. Pre-create directories
 
 ---
 
+## Clean Code: nanoGPT Style
+
+Write code that's **minimal, dense, logical, and easy to reverse-engineer**.
+
+Inspired by [Andrej Karpathy's nanoGPT](https://github.com/karpathy/nanoGPT) - code so clean that anyone can read it, understand it, and reproduce the logic.
+
+### Core Principles
+
+1. **Every line earns its place** - no boilerplate, no over-abstraction
+2. **Logic flows linearly** - read top-to-bottom, understand the algorithm
+3. **Comments explain WHY, not WHAT** - only where you diverge from standard practice
+4. **Visible intermediate steps** - don't chain everything into clever one-liners
+
+### Example: nanoGPT Style
+
+```python
+class Block(nn.Module):
+    """Transformer block: attention + feedforward with residual connections."""
+
+    def __init__(self, config):
+        super().__init__()
+        self.ln_1 = LayerNorm(config.n_embd)
+        self.attn = CausalSelfAttention(config)
+        self.ln_2 = LayerNorm(config.n_embd)
+        self.mlp = MLP(config)
+
+    def forward(self, x):
+        x = x + self.attn(self.ln_1(x))
+        x = x + self.mlp(self.ln_2(x))
+        return x
+```
+
+**Why this works:**
+- Dense but readable - every line does something meaningful
+- Modular - small composable pieces (`LayerNorm`, `CausalSelfAttention`, `MLP`)
+- Linear flow - input → attention → mlp → output
+- No comments needed - the code explains itself
+
+### Naming: Domain-Standard, Concise
+
+```python
+# ✅ Good: Standard ML conventions
+n_embd = 768       # embedding dimension
+n_head = 12        # attention heads
+n_layer = 12       # transformer layers
+
+# ✅ Good: Descriptive for non-standard operations
+def calculate_cost_usd(tokens, price_per_million):
+    return tokens / 1_000_000 * price_per_million
+```
+
+**Rules:**
+- Use domain conventions (`n_embd`, `n_head` for ML; `prompt_tokens`, `completion_tokens` for LLMs)
+- Abbreviate only when universally understood in your domain
+- Functions: verb + noun (`calculate_cost`, `register_module`, `get_usage`)
+
+### Comments: Strategic, Not Verbose
+
+```python
+# ❌ Bad: Obvious
+x = x + 1  # increment x by 1
+
+# ✅ Good: Explains non-obvious choice
+# Flash Attention for memory efficiency on long sequences
+if hasattr(F, 'scaled_dot_product_attention'):
+    y = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+```
+
+### Quick Checklist
+
+1. **Can someone reproduce this logic from reading the code?**
+2. **Does every line earn its place?**
+3. **Does the logic flow linearly (top to bottom)?**
+4. **Are comments explaining WHY, not WHAT?**
+5. **Would Karpathy approve?**
+
+---
+
 ## Writing style
 
 - Break up long sentences. After each long sentence, insert two newline characters.
@@ -161,7 +239,28 @@ The example stores the run at `logs/trace-ai-collab.log`. Pre-create directories
 
 ---
 
-## Agentic Coding Workflow Guidlines
+## Agentic Coding Workflow Guidelines
+
+### Design Before Implementation
+
+For non-trivial changes:
+1. Write a design spec with options and tradeoffs
+2. Get user approval before writing code
+3. Only then implement
+
+This prevents wasted effort and ensures alignment.
+
+### Clarify Before Implementing
+
+Before starting implementation:
+1. Make sure the user understands what's going to change
+2. Explain the approach in plain language
+3. Ask clarifying questions if requirements are ambiguous
+4. Don't jump into code while the user is still asking questions
+
+The user should feel informed, not surprised.
+
+---
 
 0. Tasks
 
