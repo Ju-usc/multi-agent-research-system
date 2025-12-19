@@ -12,8 +12,8 @@ Usage:
     def my_function(): ...
 
 Config (env vars):
-    TRACE_LEVEL=info|debug|verbose  # terminal output level
-    TRACE_LOG=logs/trace.jsonl      # file output (all levels)
+    TRACE_LEVEL=info|debug  # terminal output level
+    TRACE_LOG=logs/trace.jsonl  # file output (captures all)
 """
 
 import functools
@@ -30,7 +30,7 @@ from pathlib import Path
 TRACE_LEVEL = os.getenv("TRACE_LEVEL", "").lower()
 TRACE_LOG = os.getenv("TRACE_LOG", "")
 TRACE_ENABLED = bool(TRACE_LEVEL or TRACE_LOG)
-LEVELS = {"info": 1, "debug": 2, "verbose": 3}
+LEVELS = {"info": 1, "debug": 2}
 
 # --- Call stack for hierarchy ---
 _stack: ContextVar[list] = ContextVar("stack", default=[])
@@ -118,19 +118,31 @@ def _wrap_class(cls, exclude: list):
 def _emit(event, name, call_id, parent_id, depth, args=None, ms=None, error=None, result=None):
     """Emit to terminal and/or file."""
     ts = datetime.now()
+    is_debug = LEVELS.get(TRACE_LEVEL, 0) >= LEVELS.get("debug", 0)
 
     # Terminal output
     if TRACE_LEVEL and LEVELS.get("info", 0) <= LEVELS.get(TRACE_LEVEL, 0):
         indent = "  " * depth
         time_str = ts.strftime("%H:%M:%S.%f")[:-3]
         if event == "enter":
+            # info: truncated args (200 chars), debug: full args
             preview = ""
-            if args and LEVELS.get("debug", 0) <= LEVELS.get(TRACE_LEVEL, 0):
-                preview = "(" + ", ".join(f"{k}={_trunc(v)}" for k, v in args.items()) + ")"
+            if args:
+                if is_debug:
+                    preview = "(" + ", ".join(f"{k}={v}" for k, v in args.items()) + ")"
+                else:
+                    preview = "(" + ", ".join(f"{k}={_trunc(v, 200)}" for k, v in args.items()) + ")"
             print(f"[{time_str}] {indent}-> {name}{preview}")
         else:
             status = "x" if error else "ok"
-            print(f"[{time_str}] {indent}<- {name} [{ms:.0f}ms] {status}")
+            # info: truncated result (200 chars), debug: full result
+            result_preview = ""
+            if result is not None:
+                if is_debug:
+                    result_preview = f" -> {result}"
+                else:
+                    result_preview = f" -> {_trunc(result, 200)}"
+            print(f"[{time_str}] {indent}<- {name} [{ms:.0f}ms] {status}{result_preview}")
 
     # File output (all levels)
     if TRACE_LOG:

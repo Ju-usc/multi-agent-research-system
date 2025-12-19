@@ -81,7 +81,7 @@ TRACE_LOG=logs/run.jsonl uv run python agent.py --query "..."
 TRACE_LEVEL=debug TRACE_LOG=logs/run.jsonl uv run python agent.py --query "..."
 ```
 
-Levels: `info` (enter/exit), `debug` (+ args), `verbose` (+ results).
+Levels: `info` (snippets, 200 chars), `debug` (full output).
 
 ---
 
@@ -108,7 +108,7 @@ Levels: `info` (enter/exit), `debug` (+ args), `verbose` (+ results).
 * Increase detail when needed:
 
   ```bash
-  TRACE_LEVEL=verbose uv run python agent.py --query "..."
+  TRACE_LEVEL=debug uv run python agent.py --query "..."
   ```
 
 ---

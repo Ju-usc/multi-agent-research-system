@@ -68,21 +68,18 @@ TRACE_LOG=logs/run.jsonl uv run python agent.py --query "..."
 TRACE_LEVEL=debug TRACE_LOG=logs/run.jsonl uv run python agent.py --query "..."
 ```
 
-**Levels** (non-overlapping):
+**Levels:**
 | Level | Shows |
 |-------|-------|
-| `info` | Function enter/exit, duration, status |
-| `debug` | + argument previews |
-| `verbose` | + return values |
+| `info` | Args + result snippets (truncated to 200 chars) |
+| `debug` | Full args + results (no truncation) |
 
-**Example output:**
+**Example output (info):**
 ```
-[10:23:45.123] -> Agent.forward
-[10:23:45.130]   -> TodoListTool.read
-[10:23:45.135]   <- TodoListTool.read [5ms] ok
-[10:23:45.140]   -> SubagentTool.run
-[10:23:46.210]   <- SubagentTool.run [1070ms] ok
-[10:23:46.500] <- Agent.forward [1377ms] ok
+[10:23:45.123] -> Agent.forward(query=What is AI?)
+[10:23:45.130]   -> WebSearchTool.search(query=AI definition...)
+[10:23:45.635]   <- WebSearchTool.search [505ms] ok -> {'results': [{'title': '...
+[10:23:46.500] <- Agent.forward [1377ms] ok -> The answer is...
 ```
 
 See `tracer.py` for implementation details.

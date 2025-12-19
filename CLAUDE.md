@@ -218,16 +218,17 @@ Non-invasive call tracing via single `@trace` decorator. Zero overhead when disa
 
 | Variable | Purpose | Example |
 |----------|---------|---------|
-| `TRACE_LEVEL` | Terminal output level | `info`, `debug`, `verbose` |
+| `TRACE_LEVEL` | Terminal output level | `info`, `debug` |
 | `TRACE_LOG` | File output path (captures all levels) | `logs/trace.jsonl` |
 
-### Log Levels (non-overlapping)
+### Log Levels
 
-| Level | Terminal Shows | File Captures |
-|-------|---------------|---------------|
-| `info` | Function enter/exit, duration, status | Same |
-| `debug` | + Arguments preview | + Full args, results |
-| `verbose` | + Return values | + Raw data structures |
+| Level | Terminal Shows |
+|-------|---------------|
+| `info` | Args snippet (200 chars), result snippet (200 chars) |
+| `debug` | Full args, full results (no truncation) |
+
+File output (`TRACE_LOG`) always captures full data regardless of level.
 
 ### Usage
 
