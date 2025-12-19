@@ -136,19 +136,26 @@ def _emit(event, name, call_id, parent_id, depth, args=None, ms=None, error=None
         if error:
             rec["error"] = error
         lines.append(json.dumps(rec, default=str))
-        # Debug record (args or result)
+        # Debug record (args or result) - truncated for readability
         if args is not None or result is not None:
             debug_rec = {"level": "debug", "ts": ts.isoformat(), "call_id": call_id}
             if args is not None:
-                debug_rec["args"] = args
+                debug_rec["args"] = _trunc(args)
             if result is not None:
-                debug_rec["result"] = result
+                debug_rec["result"] = _trunc(result)
             lines.append(json.dumps(debug_rec, default=str))
         with open(TRACE_LOG, "a") as f:
             f.write("\n".join(lines) + "\n")
 
 
-def _trunc(v, n=50):
-    """Truncate for display."""
-    s = str(v)
-    return s[:n] + "..." if len(s) > n else s
+def _trunc(v, n=100):
+    """Truncate values: prefix......suffix. Handles nested dicts/lists."""
+    if isinstance(v, str):
+        if len(v) <= n * 2:
+            return v
+        return f"{v[:n]}......{v[-n:]}"
+    if isinstance(v, dict):
+        return {k: _trunc(val, n) for k, val in v.items()}
+    if isinstance(v, list):
+        return [_trunc(item, n) for item in v]
+    return v
