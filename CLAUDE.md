@@ -42,7 +42,7 @@ multi-agent-research-system/
 - **config.py**: Centralized configuration for environment variables, model constants, and logging setup
 - **models.py**: All Pydantic models (SubagentTask, SubagentResult, Memory) and DSPy signatures in one place
 - **tools.py**: Class-based tool implementations (WebSearchTool, MemoryTool) with async support
-- **tracer.py**: Non-invasive tracing via `@trace` decorator - auto-detects class vs function, tracks call hierarchy via contextvars
+- **tracer.py**: Non-invasive tracing via `@trace` decorator for methods/functions, tracks call hierarchy via contextvars
 - **utils.py**: CLI utilities including argument parsing and workspace helpers
 - **eval.py**: Evaluation with accuracy/efficiency metrics, GEPA optimization, and DSPy's built-in result saving
 - **dataset.py**: Handles BrowseComp dataset operations including downloading, XOR decryption with canary checking, and conversion to DSPy Examples
