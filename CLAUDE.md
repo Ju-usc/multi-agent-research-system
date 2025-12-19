@@ -11,6 +11,7 @@ multi-agent-research-system/
 ├── config.py                   # Environment variables, model constants, and logging configuration
 ├── models.py                   # Pydantic models and DSPy signatures for the multi-agent system
 ├── tools.py                    # Class-based tool implementations with async support
+├── tracer.py                   # Non-invasive @trace decorator for call hierarchy tracing
 ├── utils.py                    # CLI utilities and workspace helpers
 ├── eval.py                     # BrowseComp evaluation with efficiency metrics and GEPA optimization
 ├── dataset.py                  # BrowseComp dataset loader with XOR decryption and DSPy Example creation
@@ -25,7 +26,8 @@ multi-agent-research-system/
 │
 ├── tests/                      # Test suite
 │   ├── test_agent.py          # Integration tests for agent functionality and BrowseComp evaluation
-│   └── test_agent_units.py    # Comprehensive unit tests for refactored LeadAgent methods
+│   ├── test_agent_units.py    # Comprehensive unit tests for refactored LeadAgent methods
+│   └── test_tracer.py         # Unit tests for @trace decorator and hierarchy tracking
 │
 └── .claude/                    # Claude Code configuration
     ├── commands/              # Custom slash commands
@@ -40,6 +42,7 @@ multi-agent-research-system/
 - **config.py**: Centralized configuration for environment variables, model constants, and logging setup
 - **models.py**: All Pydantic models (SubagentTask, SubagentResult, Memory) and DSPy signatures in one place
 - **tools.py**: Class-based tool implementations (WebSearchTool, MemoryTool) with async support
+- **tracer.py**: Non-invasive tracing via `@trace` decorator - auto-detects class vs function, tracks call hierarchy via contextvars
 - **utils.py**: CLI utilities including argument parsing and workspace helpers
 - **eval.py**: Evaluation with accuracy/efficiency metrics, GEPA optimization, and DSPy's built-in result saving
 - **dataset.py**: Handles BrowseComp dataset operations including downloading, XOR decryption with canary checking, and conversion to DSPy Examples
@@ -206,6 +209,59 @@ The project includes comprehensive test coverage:
 - End-to-end agent functionality tests
 - BrowseComp evaluation framework tests
 - Real agent execution with actual LLM calls
+
+## Tracing System
+
+Non-invasive call tracing via single `@trace` decorator. Zero overhead when disabled.
+
+### Configuration (2 env vars)
+
+| Variable | Purpose | Example |
+|----------|---------|---------|
+| `TRACE_LEVEL` | Terminal output level | `info`, `debug`, `verbose` |
+| `TRACE_LOG` | File output path (captures all levels) | `logs/trace.jsonl` |
+
+### Log Levels (non-overlapping)
+
+| Level | Terminal Shows | File Captures |
+|-------|---------------|---------------|
+| `info` | Function enter/exit, duration, status | Same |
+| `debug` | + Arguments preview | + Full args, results |
+| `verbose` | + Return values | + Raw data structures |
+
+### Usage
+
+```bash
+# Terminal only (human-readable)
+TRACE_LEVEL=info uv run python agent.py --query "..."
+
+# File only (JSON lines for analysis)
+TRACE_LOG=logs/run.jsonl uv run python agent.py --query "..."
+
+# Both
+TRACE_LEVEL=debug TRACE_LOG=logs/run.jsonl uv run python agent.py --query "..."
+```
+
+### Decorated Modules
+
+- `Agent` class in agent.py
+- All tool classes in tools.py: `WebSearchTool`, `ParallelToolCall`, `FileSystemTool`, `TodoListTool`, `SubagentTool`
+
+### Adding Tracing to New Code
+
+```python
+from tracer import trace
+
+@trace
+class MyClass:
+    def method(self): ...
+
+@trace
+def standalone_function(): ...
+
+@trace(exclude=["noisy_method"])  # Skip specific methods
+class SelectiveClass: ...
+```
 
 ## General Workflow
 

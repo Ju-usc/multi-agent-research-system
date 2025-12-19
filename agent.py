@@ -6,6 +6,7 @@ from dspy.adapters.chat_adapter import ChatAdapter
 
 from config import ModelConfig, lm_kwargs_for
 from tools import WebSearchTool, FileSystemTool, TodoListTool, SubagentTool, ParallelToolCall
+from tracer import trace
 from utils import create_model_cli_parser
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,7 @@ class AgentSignature(dspy.Signature):
     answer: str = dspy.OutputField(desc="Answer to the query")
 
 
+@trace
 class Agent(dspy.Module):
     def __init__(
         self,

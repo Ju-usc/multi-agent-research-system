@@ -22,6 +22,7 @@ from models import (
     SubagentTask,
     ExecuteSubagentTask,
 )
+from tracer import trace
 
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ def tool_response(is_error: bool, message: str) -> str:
 
 # ---------- WebSearch ----------
 
+@trace
 class WebSearchTool:
     """Perplexity search supporting up to 5 queries (max 20 results)."""
 
@@ -74,6 +76,7 @@ class WebSearchTool:
 
         return tool_response(False, "\n\n".join(lines))
 
+@trace
 class ParallelToolCall:
     """Run multiple tool invocations concurrently."""
 
@@ -106,6 +109,7 @@ class ParallelToolCall:
 
 # ---------- FileSystem ----------
 
+@trace
 class FileSystemTool:
     """Sandboxed file system for research artifacts."""
 
@@ -162,6 +166,7 @@ class FileSystemTool:
 
 # ---------- TodoList ----------
 
+@trace
 class TodoListTool:
     """Run-scoped todo store."""
 
@@ -186,6 +191,7 @@ class TodoListTool:
 
 # ---------- SubagentTool ----------
 
+@trace
 class SubagentTool:
     """Execute a single subagent research task via ReAct."""
 

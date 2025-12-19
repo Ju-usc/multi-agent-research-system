@@ -66,16 +66,22 @@ Change models with the preset shortcut when you need to verify another provider.
 uv run python agent.py --model kimi-k2 --query "Summarize recent innovations in AI agent collaboration frameworks."
 ```
 
-### Logs
+### Tracing
 
-Runs write structured trace files under `logs/`.
+Non-invasive call tracing via `@trace` decorator. Zero overhead when disabled.
 
 ```bash
-TRACE_LOG_FILENAME=trace-ai-collab.log LOG_LEVEL=DEBUG \
-  uv run python agent.py --query "Summarize recent innovations in AI agent collaboration frameworks."
+# Terminal output (human-readable)
+TRACE_LEVEL=info uv run python agent.py --query "..."
+
+# File output (JSON lines)
+TRACE_LOG=logs/run.jsonl uv run python agent.py --query "..."
+
+# Both
+TRACE_LEVEL=debug TRACE_LOG=logs/run.jsonl uv run python agent.py --query "..."
 ```
 
-The example stores the run at `logs/trace-ai-collab.log`. Pre-create directories if you supply a nested path.
+Levels: `info` (enter/exit), `debug` (+ args), `verbose` (+ results).
 
 ---
 
@@ -95,13 +101,14 @@ The example stores the run at `logs/trace-ai-collab.log`. Pre-create directories
 
 ## Logging & instrumentation
 
-* Keep logging outside core logic; use decorators, wrappers, or hooks.
-* Use `logging` (no `print`); emit structured, JSONL-friendly lines.
+* Use `@trace` decorator from `tracer.py` for call hierarchy tracing.
+* Keep logging outside core logic; decorators wrap functions non-invasively.
+* File output (`TRACE_LOG`) writes JSONL with full args/results for analysis.
 * Never log secrets or raw tool payloads.
 * Increase detail when needed:
 
   ```bash
-  LOG_LEVEL=DEBUG uv run pytest -q
+  TRACE_LEVEL=verbose uv run python agent.py --query "..."
   ```
 
 ---
@@ -146,6 +153,7 @@ The example stores the run at `logs/trace-ai-collab.log`. Pre-create directories
 * `agent.py` — flexible a single ReAct-style agent; plans, executes, synthesizes in one loop (see @architecture-agent.md).
 
 * `tools.py` — tool definitions; usage documented in architecture files.
+* `tracer.py` — `@trace` decorator for non-invasive call hierarchy tracing.
 * `models.py` — data schemas and signatures.
 * `config.py` — env/config switches.
 * `tests/` — unit tests plus one opt-in end-to-end test.
