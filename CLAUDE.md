@@ -12,7 +12,7 @@ multi-agent-research-system/
 ├── models.py                   # Pydantic models and DSPy signatures for the multi-agent system
 ├── tools.py                    # Class-based tool implementations with async support
 ├── utils.py                    # CLI utilities and workspace helpers
-├── eval.py                     # BrowseComp evaluation with efficiency metrics and GEPA optimization
+├── eval.py                     # BrowseComp evaluation with accuracy metrics and GEPA optimization
 ├── dataset.py                  # BrowseComp dataset loader with XOR decryption and DSPy Example creation
 ├── README.md                   # Project overview and basic usage instructions
 ├── CLAUDE.md                   # This file - detailed design specs and guidelines for Claude Code
@@ -41,7 +41,7 @@ multi-agent-research-system/
 - **models.py**: All Pydantic models (SubagentTask, SubagentResult, Memory) and DSPy signatures in one place
 - **tools.py**: Class-based tool implementations (WebSearchTool, MemoryTool) with async support
 - **utils.py**: CLI utilities including argument parsing and workspace helpers
-- **eval.py**: Evaluation with accuracy/efficiency metrics, GEPA optimization, and DSPy's built-in result saving
+- **eval.py**: Evaluation with accuracy metrics, GEPA optimization, and DSPy's built-in result saving
 - **dataset.py**: Handles BrowseComp dataset operations including downloading, XOR decryption with canary checking, and conversion to DSPy Examples
 
 ## Design Principles
@@ -128,6 +128,25 @@ The codebase has been refactored from a monolithic 611-line agent.py into focuse
 - Always try to explain in the planning phase what you are going to do as the user wants to learn technical details.
 - Do not overcomplicate the planning phase try to simplify approaches only to contain the most important and necessary components.
 
+### Design Before Implementation
+
+For non-trivial changes:
+1. Write a design spec with options and tradeoffs
+2. Get user approval before writing code
+3. Only then implement
+
+This prevents wasted effort and ensures alignment.
+
+### Clarify Before Implementing
+
+Before starting implementation:
+1. Make sure the user understands what's going to change
+2. Explain the approach in plain language
+3. Ask clarifying questions if requirements are ambiguous
+4. Don't jump into code while the user is still asking questions
+
+The user should feel informed, not surprised.
+
 ## Important General MCP Guidelines
 - NEVER create files unless absolutely necessary
 - ALWAYS prefer editing existing files over creating new ones
@@ -165,22 +184,183 @@ The codebase has been refactored from a monolithic 611-line agent.py into focuse
 - When encountering token limit errors, use `ask_question` for specific queries instead
 - For large documentation sets, prefer targeted questions over attempting to read entire contents
 
-# Important Clean Code Rules
+# Clean Code: Newspaper Article Style
 
-## Naming
-- Use descriptive variable names
-- Functions should do one thing
-- Avoid abbreviations
+Write code like a newspaper article: **most important information first, details later, plain language throughout.**
 
-## Functions
-- Keep functions small (< 20 lines)
-- Use early returns
-- Avoid nested conditionals
+## The Inverted Pyramid
 
-## Comments
-- Code should be self-documenting
-- Comments explain why, not what
-- Keep comments up to date
+```
+┌─────────────────────────────────┐
+│     PUBLIC API / MAIN LOGIC     │  ← Reader sees this first
+├─────────────────────────────────┤
+│      SUPPORTING METHODS         │  ← Important helpers
+├─────────────────────────────────┤
+│    PRIVATE IMPLEMENTATION       │  ← Implementation details
+└─────────────────────────────────┘
+```
+
+**In practice:**
+- Put `__init__`, public methods, and main logic at TOP of class
+- Put private helpers (`_method`) BELOW public methods
+- Put constants and utilities at module level, ABOVE classes
+
+## Naming: Write Headlines, Not Puzzles
+
+```python
+# ❌ Bad: Reader must decode
+def proc_tkn(t, m):
+    return t / 1e6 * m
+
+# ✅ Good: Self-explanatory headline
+def calculate_cost_usd(token_count, price_per_million):
+    return token_count / 1_000_000 * price_per_million
+```
+
+**Rules:**
+- Names should read like newspaper headlines
+- Avoid abbreviations (`tkn` → `token`, `proc` → `process`)
+- Use domain language the team understands
+- Boolean variables: `is_`, `has_`, `can_`, `should_`
+- Functions: verb + noun (`calculate_cost`, `register_module`)
+
+## Functions: One Paragraph, One Idea
+
+```python
+# ❌ Bad: Multiple ideas, hard to scan
+def process(data):
+    # validate
+    if not data: raise ValueError()
+    if len(data) > 100: data = data[:100]
+    # transform
+    result = []
+    for item in data:
+        if item.valid:
+            result.append(item.value * 2)
+    # aggregate
+    return sum(result) / len(result) if result else 0
+
+# ✅ Good: One idea per function
+def process(data):
+    validated = validate_data(data)
+    transformed = transform_items(validated)
+    return calculate_average(transformed)
+```
+
+**Rules:**
+- Functions do ONE thing (single responsibility)
+- Keep under 20 lines (ideally under 10)
+- Use early returns to reduce nesting
+- If you need a comment to explain a block, extract it to a function
+
+## Structure: Answer WHO/WHAT/WHY First
+
+```python
+# ✅ Good: Module docstring answers the big questions
+"""
+Per-module token usage tracking for multi-agent research system.
+
+WHO: Used by eval.py to track costs during evaluation
+WHAT: Captures token usage per registered DSPy module
+WHY: Provides cost breakdown for GEPA optimization feedback
+"""
+
+class PerModuleUsageTracker:
+    """Track token usage per registered module.
+
+    Usage:
+        tracker = PerModuleUsageTracker()
+        tracker.register("lead_agent", my_module)
+    """
+```
+
+**Rules:**
+- Module docstring: What this file does, who uses it, why it exists
+- Class docstring: What it is + minimal usage example
+- Method docstring: Only if the name isn't self-explanatory
+- Inline comments: Explain WHY, never WHAT
+
+## Data Flow: Make It Obvious
+
+```python
+# ❌ Bad: Hidden state changes
+class Tracker:
+    def process(self, data):
+        self._internal = transform(data)  # Hidden side effect
+        self._cache[id(data)] = self._internal  # Another hidden change
+        return self._internal
+
+# ✅ Good: Explicit data flow
+class Tracker:
+    def process(self, data):
+        result = transform(data)
+        self._cache_result(data, result)  # Named side effect
+        return result
+```
+
+**Rules:**
+- Make inputs and outputs explicit
+- Name side effects clearly
+- Prefer pure functions when possible
+- Use `_` prefix for internal state
+
+## Quick Checklist
+
+Before committing, ask:
+
+1. **Can a beginner understand this in 30 seconds?**
+2. **Is the most important code at the top?**
+3. **Do names read like headlines?**
+4. **Does each function do exactly one thing?**
+5. **Are there any magic numbers or cryptic abbreviations?**
+
+---
+
+# nanoGPT Style (Advanced)
+
+For code that needs to be **minimal, dense, logical, and easy to reverse-engineer**.
+
+Inspired by [Andrej Karpathy's nanoGPT](https://github.com/karpathy/nanoGPT) - code so clean that anyone can read it, understand it, and reproduce the logic.
+
+## Core Principles
+
+1. **Every line earns its place** - no boilerplate, no over-abstraction
+2. **Logic flows linearly** - read top-to-bottom, understand the algorithm
+3. **Comments explain WHY, not WHAT** - only where you diverge from standard practice
+4. **Visible intermediate steps** - don't chain everything into clever one-liners
+
+## Example: nanoGPT Style
+
+```python
+class Block(nn.Module):
+    """Transformer block: attention + feedforward with residual connections."""
+
+    def __init__(self, config):
+        super().__init__()
+        self.ln_1 = LayerNorm(config.n_embd)
+        self.attn = CausalSelfAttention(config)
+        self.ln_2 = LayerNorm(config.n_embd)
+        self.mlp = MLP(config)
+
+    def forward(self, x):
+        x = x + self.attn(self.ln_1(x))
+        x = x + self.mlp(self.ln_2(x))
+        return x
+```
+
+**Why this works:**
+- Dense but readable - every line does something meaningful
+- Modular - small composable pieces
+- Linear flow - input → attention → mlp → output
+- No comments needed - the code explains itself
+
+## Quick Checklist (nanoGPT)
+
+1. **Can someone reproduce this logic from reading the code?**
+2. **Does every line earn its place?**
+3. **Does the logic flow linearly (top to bottom)?**
+4. **Are comments explaining WHY, not WHAT?**
+5. **Would Karpathy approve?**
 
 ## Project Execution
 

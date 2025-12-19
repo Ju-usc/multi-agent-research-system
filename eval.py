@@ -129,13 +129,8 @@ class BrowseCompEvaluator:
         )
         self.judge = dspy.ChainOfThought(BrowseCompJudge)
 
-        # Initialize reflection LM for GEPA optimization
-        self.reflection_lm = dspy.LM(
-            model=config.reflector,
-            temperature=1.0,
-            max_tokens=config.reflector_max_tokens,
-            **lm_kwargs_for(config.reflector),
-        )
+        # Lazy init: reflection LM only created when optimize_with_gepa is called
+        self._reflection_lm = None
     
     def judge_prediction(self, example: dspy.Example, pred: dspy.Prediction) -> float:
         """Judge single prediction using initialized grader LM."""
@@ -178,9 +173,18 @@ class BrowseCompEvaluator:
 
     def optimize_with_gepa(self, program: BrowseCompProgram, train: list) -> BrowseCompProgram:
         """Run GEPA optimization on program."""
+        # Lazy init reflection LM on first optimization call
+        if self._reflection_lm is None:
+            self._reflection_lm = dspy.LM(
+                model=self.config.reflector,
+                temperature=1.0,
+                max_tokens=self.config.reflector_max_tokens,
+                **lm_kwargs_for(self.config.reflector),
+            )
+
         optimizer = GEPA(
             metric=self.metric,
-            reflection_lm=self.reflection_lm,
+            reflection_lm=self._reflection_lm,
             max_full_evals=self.optimize_steps,
             num_threads=self.num_threads,
             track_stats=True,
