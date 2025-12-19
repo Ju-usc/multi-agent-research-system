@@ -18,28 +18,13 @@ PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
 
 # ========== MODEL CONFIGURATION ==========
 
-# Default models - based on feature/metrics-eval testing:
-# kimi-k2: Reliable tool calling, ~5-6 min/example, no stability issues
-# grok-4.1-fast: Very thorough (~30 searches), but slow (~29 min/example)
-# See MODEL_NOTES below for full testing results
-DEFAULT_LEAD_MODEL = "openrouter/moonshotai/kimi-k2:free"
-DEFAULT_SUB_MODEL = "openrouter/moonshotai/kimi-k2:free"
+# Default models - Grok 4.1 Fast (Dec 2025)
+# Best agentic tool calling, 2M context, $0.20/M in, $0.50/M out
+DEFAULT_LEAD_MODEL = "openrouter/x-ai/grok-4.1-fast"
+DEFAULT_SUB_MODEL = "openrouter/x-ai/grok-4.1-fast"
 DEFAULT_LEAD_MAX_TOKENS = 16000
 DEFAULT_SUB_MAX_TOKENS = 16000
 DEFAULT_TEMPERATURE = 1.0
-
-# Testing notes from feature/metrics-eval branch (for reference when choosing models):
-# ┌─────────────────────┬─────────────┬─────────────────────────────────────────────┐
-# │ Model               │ Recommended │ Notes                                       │
-# ├─────────────────────┼─────────────┼─────────────────────────────────────────────┤
-# │ kimi-k2             │ ✓ DEFAULT   │ Reliable, ~5-6 min, good speed/quality      │
-# │ grok-4.1-fast       │ ✓ Lead      │ Very thorough, ~29 min, best for quality    │
-# │ deepseek-v3.2       │ ✓ Paid      │ ~6.5 min, 8 searches, good balance          │
-# │ qwen3-coder         │ ~ Coding    │ Works, but coding-focused                   │
-# │ deepseek-r1t        │ ✗           │ Did NOT use websearch (0 calls)             │
-# │ glm-4.5-air         │ ✗           │ Unstable ("cannot schedule new futures")    │
-# └─────────────────────┴─────────────┴─────────────────────────────────────────────┘
-
 
 class ModelConfig:
     """Model configuration bundle for lead agent and subagents."""
@@ -94,59 +79,21 @@ CLEANUP_WATCHDOG_TIMEOUT_SECONDS = 30  # Force exit if DSPy/LiteLLM cleanup hang
 # ========== EVALUATION MODELS (Fixed for experimental consistency) ==========
 # These models are used for evaluation/optimization across all experiments
 # to eliminate judge/optimizer variance as a confounding variable.
-GRADER_MODEL = "openai/gpt-5"  # Judges answer correctness
+GRADER_MODEL = "openrouter/google/gemini-3-flash-preview"  # Judges answer correctness
 GRADER_MAX_TOKENS = 16000  # Large budget for reasoning chains
 
-OPTIMIZER_MODEL = "openai/gpt-5"  # GEPA prompt optimization
+OPTIMIZER_MODEL = "openrouter/google/gemini-3-flash-preview"  # GEPA prompt optimization
 OPTIMIZER_MAX_TOKENS = 32000  # Large budget for prompt refinement
 
 # ========== COST CONFIGURATION ==========
 
 WEBSEARCH_COST_PER_CALL_USD = float(os.getenv("WEBSEARCH_COST_PER_CALL_USD", "0.005"))
 
-# Model pricing per 1 MILLION tokens (industry standard format)
-# Matches OpenAI/Anthropic/Google pricing display conventions
-# Note: Even when using free tier, we track AS IF paying for meaningful cost comparisons
+# Model pricing per 1M tokens (for cost tracking in eval.py)
+# Add your model here if using --lead/--sub with a custom model
+# Unknown models will log a warning and skip cost calculation
 LM_PRICING = {
-    # === FREE TIER MODELS (OpenRouter) ===
-    # xAI Grok 4.1 Fast - free tier (best for quality/thoroughness)
-    "openrouter/x-ai/grok-4.1-fast:free": {
-        "input": 0.0,
-        "output": 0.0,
-        "cached_input": 0.0
-    },
-
-    # === PAID MODELS ===
-    # OpenAI GPT-5 Models (Standard Tier - verified 2025)
-    "openai/gpt-5-mini": {
-        "input": 0.25,           # $0.25 per 1M tokens
-        "output": 2.00,          # $2.00 per 1M tokens
-        "cached_input": 0.025    # $0.025 per 1M tokens (90% discount)
-    },
-    "openai/gpt-5": {
-        "input": 1.25,           # $1.25 per 1M tokens
-        "output": 10.00,         # $10.00 per 1M tokens
-        "cached_input": 0.125    # $0.125 per 1M tokens (90% discount)
-    },
-    
-    # DeepSeek v3.1 (verified 2025 - OpenRouter free tier uses same pricing)
-    "openrouter/deepseek/deepseek-chat-v3.1:free": {
-        "input": 0.28,           # $0.28 per 1M tokens (cache miss)
-        "output": 0.42,          # $0.42 per 1M tokens
-        "cached_input": 0.028    # $0.028 per 1M tokens (cache hit, 90% discount)
-    },
-    
-    # Moonshot Kimi K2 (verified 2025)
-    "openrouter/moonshotai/kimi-k2:free": {
-        "input": 0.60,           # $0.60 per 1M tokens (cache miss)
-        "output": 2.50,          # $2.50 per 1M tokens
-        "cached_input": 0.15     # $0.15 per 1M tokens (cache hit, 75% discount)
-    },
-    
-    # Qwen3 Coder (verified 2025 - OpenRouter pricing)
-    "openrouter/qwen/qwen3-coder:free": {
-        "input": 0.22,           # $0.22 per 1M tokens
-        "output": 0.95,          # $0.95 per 1M tokens
-        "cached_input": 0.22     # $0.22 per 1M tokens (no separate cache discount)
-    }
+    "openrouter/x-ai/grok-4.1-fast": {"input": 0.20, "output": 0.50},
+    "openrouter/deepseek/deepseek-v3.2": {"input": 0.24, "output": 0.38},
+    "openrouter/google/gemini-3-flash-preview": {"input": 0.10, "output": 0.40},
 }

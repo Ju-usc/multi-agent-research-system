@@ -47,10 +47,10 @@ Run the lead agent from the repository root.
 uv run python agent.py --query "Summarize recent innovations in AI agent collaboration frameworks."
 ```
 
-Swap models with the preset flag when you want to test different providers.
+Swap models with CLI flags:
 
 ```bash
-uv run python agent.py --model kimi-k2 --query "Summarize recent innovations in AI agent collaboration frameworks."
+uv run python agent.py --lead openrouter/deepseek/deepseek-v3.2 --query "..."
 ```
 
 ## Tracing

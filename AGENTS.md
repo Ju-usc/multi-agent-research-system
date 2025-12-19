@@ -60,10 +60,10 @@ Use the repo root as the working directory.
 uv run python agent.py --query "Summarize recent innovations in AI agent collaboration frameworks."
 ```
 
-Change models with the preset shortcut when you need to verify another provider.
+Change models with CLI flags:
 
 ```bash
-uv run python agent.py --model kimi-k2 --query "Summarize recent innovations in AI agent collaboration frameworks."
+uv run python agent.py --lead openrouter/deepseek/deepseek-v3.2 --query "..."
 ```
 
 ### Tracing
