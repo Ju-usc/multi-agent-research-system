@@ -102,13 +102,13 @@ class Tracer:
             return value
         return self._truncate(value, max_len)
 
-    def _log_terminal(self, event: str, name: str, depth: int, ts: datetime,
+    def _log_terminal(self, event: str, name: str, depth: int, timestamp: datetime,
                       args: dict = None, ms: float = None, error: str = None, result: Any = None):
         """Human-readable output to terminal."""
         if not self.level:
             return
 
-        prefix = f"[{ts.strftime('%H:%M:%S.%f')[:-3]}] {'  ' * depth}"
+        prefix = f"[{timestamp.strftime('%H:%M:%S.%f')[:-3]}] {'  ' * depth}"
 
         if event == "enter":
             suffix = ""
@@ -123,7 +123,7 @@ class Tracer:
         print(f"{prefix}<- {name} [{ms:.0f}ms] {status}{suffix}")
 
     def _log_file(self, event: str, name: str, call_id: str, parent_id: str,
-                  depth: int, ts: datetime, args: dict = None, ms: float = None,
+                  depth: int, timestamp: datetime, args: dict = None, ms: float = None,
                   error: str = None, result: Any = None):
         """JSON trace record to file."""
         if not self.log_path:
@@ -133,7 +133,7 @@ class Tracer:
         lines = []
 
         # Info record
-        rec = {"level": "info", "ts": ts.isoformat(), "event": event,
+        rec = {"level": "info", "ts": timestamp.isoformat(), "event": event,
                "name": name, "call_id": call_id, "depth": depth}
         if parent_id:
             rec["parent_id"] = parent_id
@@ -145,7 +145,7 @@ class Tracer:
 
         # Debug record (truncated unless debug mode)
         if args is not None or result is not None:
-            debug_rec = {"level": "debug", "ts": ts.isoformat(), "call_id": call_id}
+            debug_rec = {"level": "debug", "ts": timestamp.isoformat(), "call_id": call_id}
             if args is not None:
                 debug_rec["args"] = self._format_value(args, self.FILE_MAX_LEN)
             if result is not None:
