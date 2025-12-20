@@ -20,7 +20,6 @@ import functools
 import inspect
 import json
 import os
-import time
 import uuid
 from contextvars import ContextVar
 from datetime import datetime
@@ -77,23 +76,22 @@ class Tracer:
 
             # Push to stack and execute
             self._stack.set(stack + [{"id": call_id, "name": name}])
-            t0 = time.time()
+            start = datetime.now()
             error = None
             result = None
             try:
-                ts = datetime.now()
-                self._log_terminal("enter", name, depth, ts, args=log_args)
-                self._log_file("enter", name, call_id, parent_id, depth, ts, args=log_args)
+                self._log_terminal("enter", name, depth, start, args=log_args)
+                self._log_file("enter", name, call_id, parent_id, depth, start, args=log_args)
                 result = func(*args, **kwargs)
                 return result
             except Exception as e:
                 error = str(e)
                 raise
             finally:
-                ms = (time.time() - t0) * 1000
-                ts = datetime.now()
-                self._log_terminal("exit", name, depth, ts, ms=ms, error=error, result=result)
-                self._log_file("exit", name, call_id, parent_id, depth, ts, ms=ms, error=error, result=result)
+                end = datetime.now()
+                duration_ms = (end - start).total_seconds() * 1000
+                self._log_terminal("exit", name, depth, end, ms=duration_ms, error=error, result=result)
+                self._log_file("exit", name, call_id, parent_id, depth, end, ms=duration_ms, error=error, result=result)
                 self._stack.set(self._stack.get()[:-1])
 
         return wrapper
