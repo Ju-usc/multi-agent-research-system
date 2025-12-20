@@ -70,8 +70,8 @@ class Tracer:
 
             # Prepare args (skip self/cls for methods)
             log_args = kwargs.copy()
-            start = 1 if skip_first else 0
-            for i, a in enumerate(args[start:]):
+            arg_start = 1 if skip_first else 0
+            for i, a in enumerate(args[arg_start:]):
                 log_args[f"arg{i}"] = a
 
             # Push to stack and execute
@@ -90,8 +90,8 @@ class Tracer:
             finally:
                 end = datetime.now()
                 duration_ms = (end - start).total_seconds() * 1000
-                self._log_terminal("exit", name, depth, end, ms=duration_ms, error=error, result=result)
-                self._log_file("exit", name, call_id, parent_id, depth, end, ms=duration_ms, error=error, result=result)
+                self._log_terminal("exit", name, depth, end, duration_ms=duration_ms, error=error, result=result)
+                self._log_file("exit", name, call_id, parent_id, depth, end, duration_ms=duration_ms, error=error, result=result)
                 self._stack.set(self._stack.get()[:-1])
 
         return wrapper
@@ -103,7 +103,7 @@ class Tracer:
         return self._truncate(value, max_len)
 
     def _log_terminal(self, event: str, name: str, depth: int, timestamp: datetime,
-                      args: dict = None, ms: float = None, error: str = None, result: Any = None):
+                      args: dict = None, duration_ms: float = None, error: str = None, result: Any = None):
         """Human-readable output to terminal."""
         if not self.level:
             return
@@ -120,10 +120,10 @@ class Tracer:
 
         status = "x" if error else "ok"
         suffix = f" -> {self._format_value(result, self.TERMINAL_MAX_LEN)}" if result is not None else ""
-        print(f"{prefix}<- {name} [{ms:.0f}ms] {status}{suffix}")
+        print(f"{prefix}<- {name} [{duration_ms:.0f}ms] {status}{suffix}")
 
     def _log_file(self, event: str, name: str, call_id: str, parent_id: str,
-                  depth: int, timestamp: datetime, args: dict = None, ms: float = None,
+                  depth: int, timestamp: datetime, args: dict = None, duration_ms: float = None,
                   error: str = None, result: Any = None):
         """JSON trace record to file."""
         if not self.log_path:
@@ -137,19 +137,20 @@ class Tracer:
                "name": name, "call_id": call_id, "depth": depth}
         if parent_id:
             rec["parent_id"] = parent_id
-        if ms is not None:
-            rec["duration_ms"] = round(ms, 2)
+        if duration_ms is not None:
+            rec["duration_ms"] = round(duration_ms, 2)
         if error:
             rec["error"] = error
         lines.append(json.dumps(rec, default=str))
 
         # Debug record (truncated unless debug mode)
-        if args is not None or result is not None:
-            debug_rec = {"level": "debug", "ts": timestamp.isoformat(), "call_id": call_id}
-            if args is not None:
-                debug_rec["args"] = self._format_value(args, self.FILE_MAX_LEN)
-            if result is not None:
-                debug_rec["result"] = self._format_value(result, self.FILE_MAX_LEN)
+        debug_fields = {}
+        if args is not None:
+            debug_fields["args"] = self._format_value(args, self.FILE_MAX_LEN)
+        if result is not None:
+            debug_fields["result"] = self._format_value(result, self.FILE_MAX_LEN)
+        if debug_fields:
+            debug_rec = {"level": "debug", "ts": timestamp.isoformat(), "call_id": call_id, **debug_fields}
             lines.append(json.dumps(debug_rec, default=str))
 
         with open(self.log_path, "a") as f:
