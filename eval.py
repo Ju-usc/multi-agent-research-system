@@ -6,6 +6,7 @@ Evaluates the multi-agent research system on BrowseComp using DSPy's built-in ev
 
 import time
 import logging
+from pathlib import Path
 
 import dspy
 from dspy.adapters.chat_adapter import ChatAdapter
@@ -16,6 +17,10 @@ from config import (
     ModelConfig,
     LM_PRICING,
     WEBSEARCH_COST_PER_CALL_USD,
+    GRADER_MODEL,
+    GRADER_MAX_TOKENS,
+    OPTIMIZER_MODEL,
+    OPTIMIZER_MAX_TOKENS,
     lm_kwargs_for,
 )
 from dataset import BrowseCompDataset
@@ -62,75 +67,75 @@ class BrowseCompProgram(dspy.Module):
         work_dir = create_isolated_workspace()
 
         try:
+            # Use DSPy's built-in deepcopy to preserve optimized tool descriptions
             agent = self.agent.deepcopy()
             agent.reset_workspace(work_dir)
 
             start = time.perf_counter()
             prediction = agent(problem)
             elapsed = time.perf_counter() - start
-
+            
             prediction.report = prediction.answer
             prediction.elapsed_seconds = elapsed
             prediction.websearch_calls = agent.web_search_tool.call_count
-
+            
             return prediction
         finally:
             cleanup_workspace(work_dir)
 
-def calculate_lm_cost(usage: dict) -> float:
-    """Calculate LM cost with accurate input/output/cached token pricing.
-
-    Pricing in LM_PRICING is per 1M tokens (industry standard).
-    Formula: (tokens / 1,000,000) * price_per_1M = cost in USD
-    """
-    total_cost = 0.0
-
-    for model_name, stats in usage.items():
-        pricing = LM_PRICING.get(model_name, {})
-        if not pricing:
-            logger.warning(f"No pricing configured for model: {model_name}")
-            continue
-
-        prompt_tokens = stats.get("prompt_tokens", 0)
-        completion_tokens = stats.get("completion_tokens", 0)
-        prompt_details = stats.get("prompt_tokens_details", {})
-        cached_tokens = prompt_details.get("cached_tokens", 0)
-        non_cached_input = prompt_tokens - cached_tokens
-
-        # Pricing is per 1M tokens, so divide by 1,000,000
-        input_cost = (non_cached_input / 1_000_000) * pricing.get("input", 0.0)
-        cached_cost = (cached_tokens / 1_000_000) * pricing.get("cached_input", pricing.get("input", 0.0))
-        output_cost = (completion_tokens / 1_000_000) * pricing.get("output", 0.0)
-
-        total_cost += input_cost + cached_cost + output_cost
-
-    return total_cost
-
-
 class BrowseCompEvaluator:
     """Encapsulates BrowseComp evaluation with proper state management."""
-
-    def __init__(
-        self,
-        config: ModelConfig,
-        num_threads: int = 2,
-        optimize_steps: int = 10,
-    ):
-        self.config = config
-        self.num_threads = num_threads
-        self.optimize_steps = optimize_steps
+    
+    def __init__(self, args):
+        self.args = args
+        self.reflection_lm = None  # Initialized lazily if optimization requested
 
         # Initialize grader LM once for all evaluations (major efficiency improvement)
         self.grader_lm = dspy.LM(
-            model=config.grader,
+            model=GRADER_MODEL,
             temperature=1.0,  # Required for GPT-5 reasoning models
-            max_tokens=config.grader_max_tokens,
-            **lm_kwargs_for(config.grader),
+            max_tokens=GRADER_MAX_TOKENS,
+            **lm_kwargs_for(GRADER_MODEL),
         )
         self.judge = dspy.ChainOfThought(BrowseCompJudge)
 
-        # Lazy init: reflection LM only created when optimize_with_gepa is called
-        self._reflection_lm = None
+        # Initialize reflection LM for GEPA optimization if needed
+        if args.optimize:
+            self.reflection_lm = dspy.LM(
+                model=OPTIMIZER_MODEL,
+                temperature=1.0,  # Higher temp for creative prompt mutations
+                max_tokens=OPTIMIZER_MAX_TOKENS,
+                **lm_kwargs_for(OPTIMIZER_MODEL),
+            )
+    
+    def calculate_lm_cost(self, usage: dict) -> float:
+        """Calculate LM cost with accurate input/output/cached token pricing.
+        
+        Pricing in LM_PRICING is per 1M tokens (industry standard).
+        Formula: (tokens / 1,000,000) * price_per_1M = cost in USD
+        """
+        total_cost = 0.0
+        
+        for model_name, stats in usage.items():
+            pricing = LM_PRICING.get(model_name, {})
+            if not pricing:
+                logger.warning(f"No pricing configured for model: {model_name}")
+                continue
+            
+            prompt_tokens = stats.get("prompt_tokens", 0)
+            completion_tokens = stats.get("completion_tokens", 0)
+            prompt_details = stats.get("prompt_tokens_details", {})
+            cached_tokens = prompt_details.get("cached_tokens", 0)
+            non_cached_input = prompt_tokens - cached_tokens
+            
+            # Pricing is per 1M tokens, so divide by 1,000,000
+            input_cost = (non_cached_input / 1_000_000) * pricing.get("input", 0.0)
+            cached_cost = (cached_tokens / 1_000_000) * pricing.get("cached_input", pricing.get("input", 0.0))
+            output_cost = (completion_tokens / 1_000_000) * pricing.get("output", 0.0)
+            
+            total_cost += input_cost + cached_cost + output_cost
+        
+        return total_cost
     
     def judge_prediction(self, example: dspy.Example, pred: dspy.Prediction) -> float:
         """Judge single prediction using initialized grader LM."""
@@ -150,65 +155,64 @@ class BrowseCompEvaluator:
         """Calculate all metrics (accuracy, cost, time) for a prediction."""
         accuracy = self.judge_prediction(example, pred)
         usage = pred.get_lm_usage() or {}
-        lm_cost_usd = calculate_lm_cost(usage)
-        web_cost_usd = pred.websearch_calls * WEBSEARCH_COST_PER_CALL_USD
+        lm_cost = self.calculate_lm_cost(usage)
+        web_cost = pred.websearch_calls * WEBSEARCH_COST_PER_CALL_USD
         elapsed = pred.elapsed_seconds
-        total_cost_usd = lm_cost_usd + web_cost_usd
-
+        total_cost = lm_cost + web_cost
+        
         return {
             "accuracy": accuracy,
             "elapsed_seconds": elapsed,
-            "total_cost_usd": total_cost_usd,
-            "lm_cost_usd": lm_cost_usd,
-            "web_cost_usd": web_cost_usd,
+            "total_cost_usd": total_cost,
+            "lm_cost_usd": lm_cost,
+            "web_cost_usd": web_cost,
             "websearch_calls": pred.websearch_calls,
             "lm_usage": usage,
+            "efficiency_temp": accuracy / (max(1e-6, elapsed) * max(1e-6, total_cost)) if accuracy > 0 else 0.0,
         }
     
-    def metric(self, example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
-        """DSPy metric for evaluation. Returns accuracy and stores full metrics."""
+    def accuracy_metric(self, example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
+        """DSPy metric: returns accuracy only."""
+        return self.judge_prediction(example, pred)
+
+    def efficiency_metric(self, example: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
+        """DSPy metric: returns accuracy, stores full metrics in prediction."""
         metrics = self.calculate_metrics(example, pred)
         pred.metrics = metrics
         return metrics["accuracy"]
-
+    
     def optimize_with_gepa(self, program: BrowseCompProgram, train: list) -> BrowseCompProgram:
         """Run GEPA optimization on program."""
-        # Lazy init reflection LM on first optimization call
-        if self._reflection_lm is None:
-            self._reflection_lm = dspy.LM(
-                model=self.config.reflector,
-                temperature=1.0,
-                max_tokens=self.config.reflector_max_tokens,
-                **lm_kwargs_for(self.config.reflector),
-            )
-
+        metric_fn = self.efficiency_metric if self.args.metric == "efficiency" else self.accuracy_metric
+        
         optimizer = GEPA(
-            metric=self.metric,
-            reflection_lm=self._reflection_lm,
-            max_full_evals=self.optimize_steps,
-            num_threads=self.num_threads,
+            metric=metric_fn,
+            reflection_lm=self.reflection_lm,
+            max_full_evals=self.args.optimize_steps,  # Use explicit steps (can't combine with auto)
+            num_threads=self.args.num_threads,
             track_stats=True,
             track_best_outputs=True,
             candidate_selection_strategy='pareto',
             use_merge=True,
-            optimize_tool_descriptions=True,
+            optimize_tool_descriptions=True,  # Optimize tool descriptions alongside signatures
         )
-
+        
         return optimizer.compile(student=program, trainset=train)
-
+    
     def run(self, program: BrowseCompProgram, examples: list) -> tuple:
         """Run evaluation and return (result, predictions)."""
         predictions_dict = {}
-
+        metric_fn = self.efficiency_metric if self.args.metric == "efficiency" else self.accuracy_metric
+        
         def metric_with_capture(example, pred, trace=None):
-            score = self.metric(example, pred, trace)
+            score = metric_fn(example, pred, trace)
             predictions_dict[example.problem] = pred
             return score
-
+        
         evaluator = dspy.Evaluate(
             devset=examples,
             metric=metric_with_capture,
-            num_threads=self.num_threads,
+            num_threads=self.args.num_threads,
             display_progress=True,
             display_table=5,
             max_errors=10,
@@ -234,9 +238,11 @@ def _parse_args():
     parser = create_model_cli_parser("Run BrowseComp evaluation")
     parser.add_argument("--num-examples", type=int, default=10, help="Number of dataset examples")
     parser.add_argument("--num-threads", type=int, default=2, help="Parallel evaluation threads")
+    parser.add_argument("--metric", choices=["efficiency", "accuracy"], default="efficiency")
     parser.add_argument("--optimize", action="store_true", help="Run GEPA optimization")
     parser.add_argument("--optimize-steps", type=int, default=10)
     parser.add_argument("--train-size", type=float, default=0.7)
+    parser.add_argument("--save-metrics", type=str, help="Save detailed metrics to JSON")
     return parser.parse_args()
 
 
@@ -246,11 +252,11 @@ def main() -> None:
 
     print("🔍 BrowseComp Evaluation")
     print("=" * 50)
+    print(f"⚖️  Grader model: {GRADER_MODEL} (fixed for consistency)")
+    print("=" * 50)
 
     # Build config from CLI args
     config = ModelConfig(lead=args.lead, sub=args.sub)
-    print(f"⚖️  Grader model: {config.grader}")
-    print("=" * 50)
     print(f"🤖 Models: lead={config.lead}, sub={config.sub}")
 
     if dspy.settings.lm is None:
@@ -266,12 +272,8 @@ def main() -> None:
 
     dspy.settings.configure(track_usage=True)
 
-    # Initialize evaluator
-    evaluator = BrowseCompEvaluator(
-        config=config,
-        num_threads=args.num_threads,
-        optimize_steps=args.optimize_steps,
-    )
+    # Initialize evaluator with grader and optimizer LMs
+    evaluator = BrowseCompEvaluator(args)
 
     # Load dataset
     dataset = BrowseCompDataset(num_examples=args.num_examples)
@@ -284,7 +286,7 @@ def main() -> None:
     # GEPA optimization if requested
     if args.optimize:
         print(f"\n🧬 GEPA Optimization ({args.optimize_steps} steps)")
-        print(f"🤖 Using reflector model: {config.reflector}")
+        print(f"🤖 Using reflection model: {OPTIMIZER_MODEL}")
         train, test = dataset.split(train_size=args.train_size)
         print(f"📊 Split: {len(train)} train, {len(test)} test")
         
@@ -306,7 +308,7 @@ def main() -> None:
     start_cleanup_watchdog(grace_period_seconds=30)
 
     print("\n" + "=" * 50)
-    print(f"📈 Accuracy Score: {result.score:.4f}")
+    print(f"📈 {args.metric.title()} Score: {result.score:.4f}")
     print(f"📊 Examples: {len(examples)}")
     if args.optimize:
         print(f"🧬 Optimized with GEPA ({args.optimize_steps} steps)")

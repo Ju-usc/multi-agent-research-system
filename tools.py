@@ -23,6 +23,7 @@ from models import (
     SubagentTask,
     ExecuteSubagentTask,
 )
+from tracer import trace
 
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,7 @@ class WebSearchTool:
         self.client = Perplexity(api_key=PERPLEXITY_API_KEY)
         self.call_count = 0
 
+    @trace
     def __call__(
         self,
         queries: list[str],
@@ -77,6 +79,7 @@ class ParallelToolCall:
         self.tools = tools
         self._num_threads = num_threads
 
+    @trace
     def __call__(self, calls: list[dict]) -> list[str]:
         if not calls:
             return []
@@ -109,18 +112,21 @@ class FileSystemTool:
         self.root = Path(root) if isinstance(root, str) else root
         self.root.mkdir(parents=True, exist_ok=True)
 
+    @trace
     def write(self, path: str, content: str) -> str:
         file_path = self.root / path
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content)
         return str(ToolResponse(isError=False, message=f"Written to {path}"))
 
+    @trace
     def read(self, path: str) -> str:
         file_path = self.root / path
         if not file_path.exists():
             return str(ToolResponse(isError=True, message=f"File not found: {path}"))
         return str(ToolResponse(isError=False, message=file_path.read_text()))
 
+    @trace
     def tree(self, max_depth: Optional[int] = FILESYSTEM_TREE_MAX_DEPTH) -> str:
         paths = []
         for p in sorted(self.root.rglob("*")):
@@ -146,11 +152,13 @@ class TodoListTool:
     def __init__(self) -> None:
         self._todos: list[Todo] = []
 
+    @trace
     def write(self, todos: list[Todo]) -> str:
         self._todos = todos
         count = len(todos)
         return str(ToolResponse(isError=False, message=f"Updated {count} todo item{'s' if count != 1 else ''}"))
 
+    @trace
     def read(self) -> str:
         todos_json = json.dumps([t.model_dump() for t in self._todos], indent=2)
         return str(ToolResponse(isError=False, message=f"Todos ({len(self._todos)} items):\n{todos_json}"))
@@ -169,6 +177,7 @@ class SubagentTool:
         self._lm = lm
         self._adapter = adapter
 
+    @trace
     def __call__(self, task: SubagentTask) -> str:
         """Execute task and return SubagentResult JSON."""
         current_instructions = ExecuteSubagentTask.instructions

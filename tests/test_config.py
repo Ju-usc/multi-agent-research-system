@@ -11,12 +11,8 @@ from config import (  # noqa: E402
     ModelConfig,
     DEFAULT_LEAD_MODEL,
     DEFAULT_SUB_MODEL,
-    DEFAULT_GRADER_MODEL,
-    DEFAULT_REFLECTOR_MODEL,
     DEFAULT_LEAD_MAX_TOKENS,
     DEFAULT_SUB_MAX_TOKENS,
-    DEFAULT_GRADER_MAX_TOKENS,
-    DEFAULT_REFLECTOR_MAX_TOKENS,
     DEFAULT_TEMPERATURE,
 )
 
@@ -25,12 +21,8 @@ def test_model_config_uses_defaults():
     config = ModelConfig()
     assert config.lead == DEFAULT_LEAD_MODEL
     assert config.sub == DEFAULT_SUB_MODEL
-    assert config.grader == DEFAULT_GRADER_MODEL
-    assert config.reflector == DEFAULT_REFLECTOR_MODEL
     assert config.lead_max_tokens == DEFAULT_LEAD_MAX_TOKENS
     assert config.sub_max_tokens == DEFAULT_SUB_MAX_TOKENS
-    assert config.grader_max_tokens == DEFAULT_GRADER_MAX_TOKENS
-    assert config.reflector_max_tokens == DEFAULT_REFLECTOR_MAX_TOKENS
     assert config.temperature == DEFAULT_TEMPERATURE
 
 
@@ -38,10 +30,6 @@ def test_model_config_accepts_custom_models():
     config = ModelConfig(
         lead="custom/lead",
         sub="custom/sub",
-        grader="custom/grader",
-        reflector="custom/reflector",
     )
     assert config.lead == "custom/lead"
     assert config.sub == "custom/sub"
-    assert config.grader == "custom/grader"
-    assert config.reflector == "custom/reflector"
