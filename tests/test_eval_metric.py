@@ -1,8 +1,8 @@
 """
 Tests for BrowseComp evaluation metrics.
 
-Tests the BrowseCompEvaluator class methods for calculating accuracy,
-efficiency, and cost metrics from agent predictions.
+Tests the BrowseCompEvaluator class methods for grading predictions
+and calculating metrics.
 """
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -11,14 +11,13 @@ import dspy
 import pytest
 
 from eval import BrowseCompEvaluator
-from config import WEBSEARCH_COST_PER_CALL_USD
+from models import LLMJudgeAnswer
 
 
 @pytest.fixture
 def mock_args():
     """Create mock args for BrowseCompEvaluator."""
     return SimpleNamespace(
-        metric="efficiency",
         optimize=False,
         num_threads=1,
     )
@@ -117,8 +116,8 @@ def test_calculate_lm_cost_multiple_models(evaluator):
     assert cost == pytest.approx(0.000646)
 
 
-def test_calculate_metrics_correct_answer(evaluator, mock_judge):
-    """Test calculate_metrics with correct answer."""
+def test_metric_correct_answer(evaluator, mock_judge):
+    """Test metric with correct answer."""
     example = dspy.Example(problem="What is 2+2?", answer="4")
     pred = dspy.Prediction(report="The answer is 4")
     pred.elapsed_seconds = 2.0
@@ -131,78 +130,82 @@ def test_calculate_metrics_correct_answer(evaluator, mock_judge):
         }
     }
     
-    # Configure mock judge at boundary to return correct
-    mock_judge.return_value = SimpleNamespace(is_correct=True)
+    # Configure mock judge to return correct answer
+    mock_judge.return_value = SimpleNamespace(
+        answer=LLMJudgeAnswer(
+            is_correct=True,
+            extracted_answer="4",
+            reasoning="The answer matches."
+        )
+    )
     
-    metrics = evaluator.calculate_metrics(example, pred)
+    result = evaluator.metric(example, pred)
     
-    assert metrics["accuracy"] == 1.0
-    assert metrics["elapsed_seconds"] == 2.0
-    assert metrics["lm_cost_usd"] == pytest.approx(0.00045)  # grok pricing
-    assert metrics["web_cost_usd"] == pytest.approx(WEBSEARCH_COST_PER_CALL_USD)
-    assert metrics["total_cost_usd"] == pytest.approx(0.00045 + WEBSEARCH_COST_PER_CALL_USD)
-    assert metrics["websearch_calls"] == 1
-    assert "efficiency_temp" in metrics
+    assert float(result) == 1.0
+    assert pred.metrics["accuracy"] == 1.0
+    assert pred.metrics["elapsed_seconds"] == 2.0
+    assert "Expected: 4" in result.feedback
+    assert "Extracted: 4" in result.feedback
 
 
-def test_calculate_metrics_incorrect_answer(evaluator, mock_judge):
-    """Test calculate_metrics with incorrect answer."""
+def test_metric_incorrect_answer(evaluator, mock_judge):
+    """Test metric with incorrect answer."""
     example = dspy.Example(problem="What is 2+2?", answer="4")
     pred = dspy.Prediction(report="The answer is 5")
     pred.elapsed_seconds = 1.0
     pred.websearch_calls = 0
     pred.get_lm_usage = lambda: {}
     
-    # Configure mock judge at boundary to return incorrect
-    mock_judge.return_value = SimpleNamespace(is_correct=False)
+    # Configure mock judge to return incorrect
+    mock_judge.return_value = SimpleNamespace(
+        answer=LLMJudgeAnswer(
+            is_correct=False,
+            extracted_answer="5",
+            reasoning="The answer is wrong."
+        )
+    )
     
-    metrics = evaluator.calculate_metrics(example, pred)
+    result = evaluator.metric(example, pred)
     
-    assert metrics["accuracy"] == 0.0
-    assert metrics["efficiency_temp"] == 0.0  # Efficiency is 0 when incorrect
+    assert float(result) == 0.0
+    assert pred.metrics["accuracy"] == 0.0
 
 
-def test_accuracy_metric(evaluator, mock_judge):
-    """Test accuracy_metric returns judge result."""
-    example = dspy.Example(problem="Q", answer="A")
-    pred = dspy.Prediction(report="A")
-    
-    # Configure mock judge at boundary
-    mock_judge.return_value = SimpleNamespace(is_correct=True)
-    
-    score = evaluator.accuracy_metric(example, pred)
-    
-    assert score == 1.0
-    mock_judge.assert_called_once()
-
-
-def test_efficiency_metric_stores_metrics(evaluator, mock_judge):
-    """Test efficiency_metric stores full metrics in prediction."""
+def test_metric_stores_feedback(evaluator, mock_judge):
+    """Test metric stores feedback in ScoreWithFeedback."""
     example = dspy.Example(problem="Q", answer="A")
     pred = dspy.Prediction(report="A")
     pred.elapsed_seconds = 1.0
     pred.websearch_calls = 1
     pred.get_lm_usage = lambda: {}
     
-    # Configure mock judge at boundary
-    mock_judge.return_value = SimpleNamespace(is_correct=True)
+    mock_judge.return_value = SimpleNamespace(
+        answer=LLMJudgeAnswer(
+            is_correct=True,
+            extracted_answer="A",
+            reasoning="Correct."
+        )
+    )
     
-    score = evaluator.efficiency_metric(example, pred)
+    result = evaluator.metric(example, pred)
     
-    assert score == 1.0  # Returns accuracy
-    assert pred.metrics["accuracy"] == 1.0
-    assert pred.metrics["elapsed_seconds"] == 1.0
-    assert pred.metrics["websearch_calls"] == 1
+    assert float(result) == 1.0
+    assert "Accuracy: 1/1" in result.feedback
+    assert "Reasoning: Correct." in result.feedback
 
 
-def test_judge_prediction_error_handling(evaluator, mock_judge):
-    """Test judge_prediction handles errors gracefully."""
+def test_grade_prediction_error_handling(evaluator, mock_judge):
+    """Test grade_prediction handles errors gracefully."""
     example = dspy.Example(problem="Q", answer="A")
     pred = dspy.Prediction(report="A")
+    pred.elapsed_seconds = 1.0
+    pred.websearch_calls = 0
+    pred.get_lm_usage = lambda: {}
     
-    # Configure mock judge at boundary to raise exception
+    # Configure mock judge to raise exception
     mock_judge.side_effect = Exception("Judge failed")
     
-    score = evaluator.judge_prediction(example, pred)
+    result = evaluator.metric(example, pred)
     
-    assert score == 0.0  # Returns 0 on error
+    assert float(result) == 0.0  # Returns 0 on error
+    assert "Grading failed" in result.feedback
