@@ -34,7 +34,7 @@ from utils import (
 
 logger = logging.getLogger(__name__)
 
-class BrowseCompProgram(dspy.Module):
+class MultiAgentResearchSystem(dspy.Module):
     """
     DSPy program wrapper for Agent to make it compatible with dspy.Evaluate.
 
@@ -165,7 +165,7 @@ class BrowseCompEvaluator:
         
         return ScoreWithFeedback(score=accuracy, feedback=feedback)
     
-    def optimize_with_gepa(self, program: BrowseCompProgram, train: list) -> BrowseCompProgram:
+    def optimize_with_gepa(self, program: MultiAgentResearchSystem, train: list) -> MultiAgentResearchSystem:
         """Run GEPA optimization on program."""
         optimizer = GEPA(
             metric=self.metric,
@@ -181,7 +181,7 @@ class BrowseCompEvaluator:
         
         return optimizer.compile(student=program, trainset=train)
     
-    def run(self, program: BrowseCompProgram, examples: list) -> tuple:
+    def run(self, program: MultiAgentResearchSystem, examples: list) -> tuple:
         """Run evaluation and return (result, predictions)."""
         predictions_dict = {}
         
@@ -260,7 +260,7 @@ def main() -> None:
     print(f"📚 Loaded {len(examples)} examples")
 
     # Create agent program
-    program = BrowseCompProgram(config=config)
+    program = MultiAgentResearchSystem(config=config)
 
     # GEPA optimization if requested
     if args.optimize:
