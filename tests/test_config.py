@@ -1,13 +1,6 @@
 """Tests for config ModelConfig."""
 
-from pathlib import Path
-import sys
-
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from config import (  # noqa: E402
+from config import (
     ModelConfig,
     DEFAULT_LEAD_MODEL,
     DEFAULT_SUB_MODEL,

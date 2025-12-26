@@ -17,42 +17,27 @@ from config import WEBSEARCH_COST_PER_CALL_USD
 @pytest.fixture
 def mock_args():
     """Create mock args for BrowseCompEvaluator."""
-    args = SimpleNamespace(
+    return SimpleNamespace(
         metric="efficiency",
         optimize=False,
         num_threads=1,
     )
-    return args
 
 
 @pytest.fixture
-def mock_config():
-    """Create mock config for BrowseCompEvaluator."""
-    config = SimpleNamespace(
-        big="gpt-4o-mini",
-        small="gpt-4o-mini",
-        big_max_tokens=4096,
-        small_max_tokens=4096,
-    )
-    return config
+def mock_judge():
+    """Mock judge that can be configured per test."""
+    return MagicMock()
 
 
 @pytest.fixture
-def evaluator(mock_config, mock_args, monkeypatch):
-    """Create BrowseCompEvaluator with mocked LM initialization."""
-    # Mock dspy.LM to avoid actual API calls
-    mock_lm = MagicMock()
-    monkeypatch.setattr("eval.dspy.LM", lambda **kwargs: mock_lm)
-    
-    # Mock dspy.ChainOfThought
-    mock_judge = MagicMock()
+def evaluator(mock_args, mock_judge, monkeypatch):
+    """Create BrowseCompEvaluator with mocked DSPy boundary."""
+    # Mock at DSPy boundary (external lib that makes API calls)
+    monkeypatch.setattr("eval.dspy.LM", lambda **kwargs: MagicMock())
     monkeypatch.setattr("eval.dspy.ChainOfThought", lambda sig: mock_judge)
     
-    # Mock lm_kwargs_for to avoid API key checks
-    monkeypatch.setattr("eval.lm_kwargs_for", lambda model_id: {})
-    
     evaluator = BrowseCompEvaluator(mock_args)
-    evaluator.judge = mock_judge
     return evaluator
 
 
@@ -132,7 +117,7 @@ def test_calculate_lm_cost_multiple_models(evaluator):
     assert cost == pytest.approx(0.000646)
 
 
-def test_calculate_metrics_correct_answer(evaluator):
+def test_calculate_metrics_correct_answer(evaluator, mock_judge):
     """Test calculate_metrics with correct answer."""
     example = dspy.Example(problem="What is 2+2?", answer="4")
     pred = dspy.Prediction(report="The answer is 4")
@@ -146,8 +131,8 @@ def test_calculate_metrics_correct_answer(evaluator):
         }
     }
     
-    # Mock judge to return correct
-    evaluator.judge_prediction = MagicMock(return_value=1.0)
+    # Configure mock judge at boundary to return correct
+    mock_judge.return_value = SimpleNamespace(is_correct=True)
     
     metrics = evaluator.calculate_metrics(example, pred)
     
@@ -160,7 +145,7 @@ def test_calculate_metrics_correct_answer(evaluator):
     assert "efficiency_temp" in metrics
 
 
-def test_calculate_metrics_incorrect_answer(evaluator):
+def test_calculate_metrics_incorrect_answer(evaluator, mock_judge):
     """Test calculate_metrics with incorrect answer."""
     example = dspy.Example(problem="What is 2+2?", answer="4")
     pred = dspy.Prediction(report="The answer is 5")
@@ -168,8 +153,8 @@ def test_calculate_metrics_incorrect_answer(evaluator):
     pred.websearch_calls = 0
     pred.get_lm_usage = lambda: {}
     
-    # Mock judge to return incorrect
-    evaluator.judge_prediction = MagicMock(return_value=0.0)
+    # Configure mock judge at boundary to return incorrect
+    mock_judge.return_value = SimpleNamespace(is_correct=False)
     
     metrics = evaluator.calculate_metrics(example, pred)
     
@@ -177,21 +162,21 @@ def test_calculate_metrics_incorrect_answer(evaluator):
     assert metrics["efficiency_temp"] == 0.0  # Efficiency is 0 when incorrect
 
 
-def test_accuracy_metric(evaluator):
+def test_accuracy_metric(evaluator, mock_judge):
     """Test accuracy_metric returns judge result."""
     example = dspy.Example(problem="Q", answer="A")
     pred = dspy.Prediction(report="A")
     
-    # Mock judge to return 1.0
-    evaluator.judge_prediction = MagicMock(return_value=1.0)
+    # Configure mock judge at boundary
+    mock_judge.return_value = SimpleNamespace(is_correct=True)
     
     score = evaluator.accuracy_metric(example, pred)
     
     assert score == 1.0
-    evaluator.judge_prediction.assert_called_once_with(example, pred)
+    mock_judge.assert_called_once()
 
 
-def test_efficiency_metric_stores_metrics(evaluator):
+def test_efficiency_metric_stores_metrics(evaluator, mock_judge):
     """Test efficiency_metric stores full metrics in prediction."""
     example = dspy.Example(problem="Q", answer="A")
     pred = dspy.Prediction(report="A")
@@ -199,32 +184,24 @@ def test_efficiency_metric_stores_metrics(evaluator):
     pred.websearch_calls = 1
     pred.get_lm_usage = lambda: {}
     
-    # Mock calculate_metrics
-    expected_metrics = {
-        "accuracy": 1.0,
-        "elapsed_seconds": 1.0,
-        "total_cost_usd": 0.01,
-        "lm_cost_usd": 0.0,
-        "web_cost_usd": 0.01,
-        "websearch_calls": 1,
-        "lm_usage": {},
-        "efficiency_temp": 100.0,
-    }
-    evaluator.calculate_metrics = MagicMock(return_value=expected_metrics)
+    # Configure mock judge at boundary
+    mock_judge.return_value = SimpleNamespace(is_correct=True)
     
     score = evaluator.efficiency_metric(example, pred)
     
     assert score == 1.0  # Returns accuracy
-    assert pred.metrics == expected_metrics  # Stores full metrics
+    assert pred.metrics["accuracy"] == 1.0
+    assert pred.metrics["elapsed_seconds"] == 1.0
+    assert pred.metrics["websearch_calls"] == 1
 
 
-def test_judge_prediction_error_handling(evaluator):
+def test_judge_prediction_error_handling(evaluator, mock_judge):
     """Test judge_prediction handles errors gracefully."""
     example = dspy.Example(problem="Q", answer="A")
     pred = dspy.Prediction(report="A")
     
-    # Mock judge to raise exception
-    evaluator.judge = MagicMock(side_effect=Exception("Judge failed"))
+    # Configure mock judge at boundary to raise exception
+    mock_judge.side_effect = Exception("Judge failed")
     
     score = evaluator.judge_prediction(example, pred)
     

@@ -1,56 +1,54 @@
 from types import SimpleNamespace
-import pathlib
-import sys
 import json
-
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-
+import pytest
 import tools
 
 
-def test_web_search_tool_formats_results(monkeypatch):
-    class _FakeSearch:
-        def __init__(self):
-            self.last_kwargs = None
+class FakeSearch:
+    """Mock Perplexity search client."""
+    def __init__(self, results=None):
+        self.last_kwargs = None
+        self._results = results or []
 
-        def create(self, **kwargs):
-            self.last_kwargs = kwargs
-            return SimpleNamespace(
-                results=[
-                    SimpleNamespace(
-                        title="Result One",
-                        snippet="Snippet One",
-                        url="https://one.example",
-                        date="2024-01-01",
-                        last_updated="2024-01-02",
-                    ),
-                    SimpleNamespace(
-                        title="Result Two",
-                        snippet="Snippet Two",
-                        url="https://two.example",
-                        date="2024-01-03",
-                        last_updated="2024-01-04",
-                    ),
-                ]
-            )
+    def create(self, **kwargs):
+        self.last_kwargs = kwargs
+        return SimpleNamespace(results=self._results)
 
-    class _FakePerplexity:
-        def __init__(self, api_key: str | None = None) -> None:
-            self.api_key = api_key
-            self.search = _FakeSearch()
 
-    fake_client = _FakePerplexity()
+class FakePerplexity:
+    """Mock Perplexity client."""
+    def __init__(self, api_key=None, results=None):
+        self.api_key = api_key
+        self.search = FakeSearch(results)
 
+
+@pytest.fixture
+def mock_perplexity(monkeypatch):
+    """Fixture to mock Perplexity client."""
+    results = [
+        SimpleNamespace(
+            title="Result One",
+            snippet="Snippet One",
+            url="https://one.example",
+            date="2024-01-01",
+            last_updated="2024-01-02",
+        ),
+        SimpleNamespace(
+            title="Result Two",
+            snippet="Snippet Two",
+            url="https://two.example",
+            date="2024-01-03",
+            last_updated="2024-01-04",
+        ),
+    ]
+    client = FakePerplexity(results=results)
     monkeypatch.setattr(tools, "PERPLEXITY_API_KEY", "fake-key")
+    monkeypatch.setattr(tools, "Perplexity", lambda api_key=None: setattr(client, 'api_key', api_key) or client)
+    return client
 
-    def _factory(api_key=None):
-        fake_client.api_key = api_key
-        return fake_client
 
-    monkeypatch.setattr(tools, "Perplexity", _factory)
-
+def test_web_search_tool_formats_results(mock_perplexity):
     tool = tools.WebSearchTool()
-
     output = tool(["test query"])
     result = json.loads(output)
 
@@ -69,33 +67,19 @@ def test_web_search_tool_formats_results(monkeypatch):
 
     assert result["isError"] is False
     assert result["message"] == expected_message
-    assert fake_client.api_key == "fake-key"
-    assert fake_client.search.last_kwargs == {
+    assert mock_perplexity.api_key == "fake-key"
+    assert mock_perplexity.search.last_kwargs == {
         "query": ["test query"],
         "max_results": 5,
         "max_tokens_per_page": 1024,
     }
 
 
-def test_web_search_tool_call_count(monkeypatch):
-    class _FakeSearch:
-        def create(self, **_):
-            return SimpleNamespace(results=[])
-
-    class _FakePerplexity:
-        def __init__(self, api_key: str | None = None) -> None:
-            self.api_key = api_key
-            self.search = _FakeSearch()
-
-    monkeypatch.setattr(tools, "PERPLEXITY_API_KEY", "fake-key")
-    monkeypatch.setattr(tools, "Perplexity", lambda api_key=None: _FakePerplexity(api_key))
-
+def test_web_search_tool_call_count(mock_perplexity):
     tool = tools.WebSearchTool()
-
     assert tool.call_count == 0
     tool(["first"])
     tool(["second"])
-
     assert tool.call_count == 2
 
 
