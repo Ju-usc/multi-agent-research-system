@@ -1,12 +1,5 @@
 """Tests for config ModelConfig."""
 
-from pathlib import Path
-import sys
-
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
 from config import (
     ModelConfig,
     DEFAULT_LEAD_MODEL,
@@ -27,6 +20,9 @@ def test_model_config_uses_defaults():
 
 
 def test_model_config_accepts_custom_models():
-    config = ModelConfig(lead="custom/lead", sub="custom/sub")
+    config = ModelConfig(
+        lead="custom/lead",
+        sub="custom/sub",
+    )
     assert config.lead == "custom/lead"
     assert config.sub == "custom/sub"

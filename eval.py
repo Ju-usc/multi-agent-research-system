@@ -6,7 +6,6 @@ Evaluates the multi-agent research system on BrowseComp using DSPy's built-in ev
 
 import time
 import logging
-from pathlib import Path
 
 import dspy
 from dspy.adapters.chat_adapter import ChatAdapter
@@ -124,7 +123,7 @@ class BrowseCompEvaluator:
             
             prompt_tokens = stats.get("prompt_tokens", 0)
             completion_tokens = stats.get("completion_tokens", 0)
-            prompt_details = stats.get("prompt_tokens_details", {})
+            prompt_details = stats.get("prompt_tokens_details") or {}
             cached_tokens = prompt_details.get("cached_tokens", 0)
             non_cached_input = prompt_tokens - cached_tokens
             
@@ -242,7 +241,6 @@ def _parse_args():
     parser.add_argument("--optimize", action="store_true", help="Run GEPA optimization")
     parser.add_argument("--optimize-steps", type=int, default=10)
     parser.add_argument("--train-size", type=float, default=0.7)
-    parser.add_argument("--save-metrics", type=str, help="Save detailed metrics to JSON")
     return parser.parse_args()
 
 
@@ -305,7 +303,7 @@ def main() -> None:
     result, predictions = evaluator.run(program, examples)
 
     # Workaround for DSPy/LiteLLM cleanup hang
-    start_cleanup_watchdog(grace_period_seconds=30)
+    start_cleanup_watchdog()
 
     print("\n" + "=" * 50)
     print(f"📈 {args.metric.title()} Score: {result.score:.4f}")

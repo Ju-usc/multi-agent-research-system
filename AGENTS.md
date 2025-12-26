@@ -79,6 +79,29 @@ See `architecture-agent.md` for contracts and tool surfaces.
 
 ---
 
+## nanoGPT Style
+
+Write code that's **minimal, dense, logical, and easy to reverse-engineer**.
+
+1. **Every line earns its place** - no boilerplate, no over-abstraction
+2. **Logic flows linearly** - read top-to-bottom, understand the algorithm
+3. **Comments explain WHY, not WHAT** - only where you diverge from standard practice
+
+```python
+# Good: Dense but readable
+class Block(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.ln_1 = LayerNorm(config.n_embd)
+        self.attn = CausalSelfAttention(config)
+    
+    def forward(self, x):
+        x = x + self.attn(self.ln_1(x))
+        return x
+```
+
+---
+
 ## Testing
 
 - **Default:** Unit tests only, no network, deterministic
@@ -92,6 +115,20 @@ See `architecture-agent.md` for contracts and tool surfaces.
 2. **Plan** — write plan, get approval before implementing
 3. **Implement** — execute plan, group questions at end
 4. **Verify** — run tests, check output before declaring done
+
+### Design Before Implementation
+
+For non-trivial changes:
+1. Write a design spec with options and tradeoffs
+2. Get user approval before writing code
+3. Only then implement
+
+### Clarify Before Implementing
+
+Before starting:
+1. Make sure the user understands what's going to change
+2. Explain the approach in plain language
+3. Ask clarifying questions if requirements are ambiguous
 
 ---
 

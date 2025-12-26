@@ -5,23 +5,27 @@ from pydantic import BaseModel, Field
 import dspy
 
 
+class ToolResponse(BaseModel):
+    """Unified response format for all tools."""
+    isError: bool
+    message: str
+
+    def __str__(self) -> str:
+        return self.model_dump_json()
+
+
 class SubagentTask(BaseModel):
     """Atomic research task for a subagent."""
-    task_name: str = Field(
-        description="Filesystem-friendly directory name",
-        max_length=50,
-        pattern="^[a-z0-9-]+$"
-    )
+    name: str = Field(description="Task identifier for matching results", max_length=50)
+    # exclude=True: prompt is injected into signature.instructions, not serialized to LLM
     prompt: str = Field(description="Prompt for the subagent", exclude=True)
     description: str = Field(description="Description of the task")
     tool_budget: int = Field(default=3, ge=1, le=15, description="Max tool calls")
-    expected_output: Optional[str] = Field(default=None, description="Expected artifact")
-    tip: Optional[str] = Field(default=None, description="Hint for quality/efficiency")
 
 
 class SubagentResult(BaseModel):
     """Subagent output."""
-    task_name: str = Field(default="", description="Task name", exclude=True)
+    name: str = Field(default="", description="Task identifier for matching parallel results")
     summary: str = Field(description="2-4 sentence overview of findings")
     detail: Optional[str] = Field(default=None, description="Supplemental detail")
     artifact_path: Optional[str] = Field(default=None, description="Path relative to workspace root")

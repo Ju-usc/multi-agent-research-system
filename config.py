@@ -64,9 +64,6 @@ def lm_kwargs_for(model_id: str) -> dict[str, str]:
 WEBSEARCH_MAX_RESULTS = 5  # Results per query
 WEBSEARCH_MAX_TOKENS_PER_PAGE = 1024  # Content truncation limit
 
-# Parallel execution
-PARALLEL_THREADS = 4  # Max concurrent tool invocations
-
 # Filesystem tree display
 FILESYSTEM_TREE_MAX_DEPTH = 3
 

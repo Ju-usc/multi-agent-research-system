@@ -27,17 +27,11 @@ A minimal multi-agent research system, built with DSPy, inspired by [Anthropic�
 
 ## Evaluation philosophy
 
-The default `efficiency` metric drives **lean correctness** — right answers with minimal waste:
+The system optimizes for **accuracy** — correct answers are the primary goal.
 
-```
-efficiency = accuracy / (time × cost)
-```
+Efficiency metadata (time, cost, tool calls) is tracked and reported but not used as an optimization target. This avoids high variance from question difficulty affecting scores.
 
-This penalizes over-search (20 queries vs 5), over-decomposition (10 subagents vs 3), and slow synthesis. Wrong answers score zero regardless of speed.
-
-**GEPA optimization** discovers prompts that maximize efficiency. Patterns like "use 3-5 focused tasks" and "stop when returns diminish" emerge naturally from optimizing `accuracy / (time × cost)` — they're not hardcoded.
-
-Trade-off: optimizing for `accuracy` alone ignores cost and produces verbose reports.
+**GEPA optimization** discovers prompts that maximize accuracy. Patterns like "use 3-5 focused tasks" and "stop when returns diminish" emerge from the optimization process.
 
 ## Quick CLI run
 
@@ -86,30 +80,26 @@ See `tracer.py` for implementation details.
 
 ## Evaluation
 
-Run BrowseComp evaluation with efficiency metrics and GEPA optimization.
+Run BrowseComp evaluation with GEPA optimization.
 
 ```bash
 # Basic evaluation
 uv run python eval.py
 
 # Custom settings
-uv run python eval.py --num-examples 20 --metric accuracy
+uv run python eval.py --num-examples 20
 
 # GEPA optimization (auto train/test split)
 uv run python eval.py --optimize --optimize-steps 10
-
-# Save results
-uv run python eval.py --save-metrics results.json
 ```
 
-**Metrics:**
-- `accuracy`: Binary correctness (1.0 or 0.0)
-- `efficiency`: accuracy / (time × cost) - default
+**Metrics tracked:**
+- `accuracy`: Binary correctness (1.0 or 0.0) - optimization target
+- `elapsed_seconds`, `total_cost_usd`, `websearch_calls` - metadata for analysis
 
 **Cost config** (`.env`):
 ```bash
 WEBSEARCH_COST_PER_CALL_USD=0.005
-LM_COST_PER_1K_TOKENS_JSON='{"openai/gpt-4o": 0.005}'
 ```
 
 See `.env.template` for full example.

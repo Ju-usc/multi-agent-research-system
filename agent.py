@@ -57,28 +57,21 @@ class Agent(dspy.Module):
         )
 
 
-        self.subagent_tools = {
-            "web_search": dspy.Tool(
+        subagent_tools = [
+            dspy.Tool(
                 self.web_search_tool,
                 name="web_search",
                 desc="Search the web. Returns JSON: {isError: bool, message: str} with search results in message.",
             ),
-            "filesystem_write": dspy.Tool(
+            dspy.Tool(
                 self.fs_tool.write,
                 name="filesystem_write",
                 desc="Write content to path. Returns JSON: {isError: bool, message: str}. Use relative paths like 'results/data.json'.",
             ),
-        }
-
-        subagent_parallel_tool = ParallelToolCall(self.subagent_tools, num_threads=4)
-        self.subagent_tools["parallel_tool_call"] = dspy.Tool(
-            subagent_parallel_tool,
-            name="parallel_tool_call",
-            desc="Run multiple subagent tools in parallel with a single call.",
-        )
+        ]
 
         self.subagent_tool = SubagentTool(
-            tools=list(self.subagent_tools.values()),
+            tools=subagent_tools,
             lm=self.subagent_lm,
             adapter=ChatAdapter(),
         )
@@ -111,7 +104,7 @@ class Agent(dspy.Module):
             ),
         }
         
-        lead_parallel_tool = ParallelToolCall(self.lead_agent_tools, num_threads=4)
+        lead_parallel_tool = ParallelToolCall(self.lead_agent_tools)
         self.lead_agent_tools["parallel_tool_call"] = dspy.Tool(
             lead_parallel_tool,
             name="parallel_tool_call",
@@ -122,6 +115,8 @@ class Agent(dspy.Module):
             AgentSignature,
             tools=list(self.lead_agent_tools.values()),
         )
+        self.lead_agent.lm = self.agent_lm
+        self.lead_agent.adapter = ChatAdapter()
 
     @trace
     def forward(self, query: str) -> dspy.Prediction:
@@ -133,10 +128,11 @@ class Agent(dspy.Module):
         Args:
             work_dir: New workspace directory (will be created if needed)
         """
-        self.fs_tool.root = work_dir
+        # absolute path required for _safe_path() sandbox check
+        self.fs_tool.root = work_dir.resolve()
         work_dir.mkdir(parents=True, exist_ok=True)
         self.web_search_tool.call_count = 0
-        self.todo_list_tool._todos = []
+        self.todo_list_tool.clear()
 
 
 def parse_args():
@@ -160,19 +156,10 @@ def main() -> None:
     config = ModelConfig(lead=args.lead, sub=args.sub)
     logger.info("Models | lead=%s sub=%s", config.lead, config.sub)
 
-    dspy.configure(
-        lm=dspy.LM(
-            model=config.lead,
-            temperature=config.temperature,
-            max_tokens=config.lead_max_tokens,
-            **lm_kwargs_for(config.lead),
-        ),
-        adapter=ChatAdapter(),
-    )
-
     agent = Agent(config=config)
     result = agent(query=args.query)
-    dspy.inspect_history(n=5)
+    if logger.isEnabledFor(logging.DEBUG):
+        dspy.inspect_history(n=10)
 
     print(result.answer)
 
