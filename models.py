@@ -47,9 +47,9 @@ class ExecuteSubagentTask(dspy.Signature):
 
 class LLMJudgeAnswer(BaseModel):
     """Answer from LLM judge on prediction correctness."""
-    is_correct: bool
     extracted_answer: str
     reasoning: str
+    is_correct: bool
 
 
 class BrowseCompJudge(dspy.Signature):
