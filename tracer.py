@@ -39,6 +39,12 @@ class Tracer:
         self.log_path = log_path
         self._stack: ContextVar[list] = ContextVar("stack", default=[])
 
+    def configure(self, level: str = "", log_path: str = ""):
+        """Reconfigure tracer at runtime (useful for testing)."""
+        self.level = level.lower()
+        self.log_path = log_path
+        return self
+
     @property
     def enabled(self) -> bool:
         return bool(self.level or self.log_path)
@@ -130,31 +136,27 @@ class Tracer:
             return
 
         Path(self.log_path).parent.mkdir(parents=True, exist_ok=True)
-        lines = []
 
-        # Info record
-        rec = {"level": "info", "ts": timestamp.isoformat(), "event": event,
-               "name": name, "call_id": call_id, "depth": depth}
+        rec = {
+            "ts": timestamp.isoformat(),
+            "event": event,
+            "name": name,
+            "call_id": call_id,
+            "depth": depth,
+        }
         if parent_id:
             rec["parent_id"] = parent_id
         if duration_ms is not None:
             rec["duration_ms"] = round(duration_ms, 2)
         if error:
             rec["error"] = error
-        lines.append(json.dumps(rec, default=str))
-
-        # Debug record (truncated unless debug mode)
-        debug_fields = {}
         if args is not None:
-            debug_fields["args"] = self._format_value(args, self.FILE_MAX_LEN)
+            rec["args"] = self._format_value(args, self.FILE_MAX_LEN)
         if result is not None:
-            debug_fields["result"] = self._format_value(result, self.FILE_MAX_LEN)
-        if debug_fields:
-            debug_rec = {"level": "debug", "ts": timestamp.isoformat(), "call_id": call_id, **debug_fields}
-            lines.append(json.dumps(debug_rec, default=str))
+            rec["result"] = self._format_value(result, self.FILE_MAX_LEN)
 
         with open(self.log_path, "a") as f:
-            f.write("\n".join(lines) + "\n")
+            f.write(json.dumps(rec, default=str) + "\n")
 
     def _truncate(self, value: Any, max_len: int = 100) -> Any:
         """Truncate values: prefix......suffix. Handles nested structures."""

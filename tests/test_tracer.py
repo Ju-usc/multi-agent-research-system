@@ -2,42 +2,33 @@
 
 import json
 import pytest
+import tracer
 
 
 @pytest.fixture
-def tracer_with_file(monkeypatch, tmp_path):
+def trace_file(tmp_path):
     """Enable tracing with file output."""
     log_file = tmp_path / "trace.jsonl"
-    monkeypatch.setenv("TRACE_LEVEL", "debug")
-    monkeypatch.setenv("TRACE_LOG", str(log_file))
-    import importlib
-    import tracer
-    importlib.reload(tracer)
-    yield tracer, log_file
-    monkeypatch.delenv("TRACE_LEVEL", raising=False)
-    monkeypatch.delenv("TRACE_LOG", raising=False)
-    importlib.reload(tracer)
+    tracer.tracer.configure(level="debug", log_path=str(log_file))
+    yield log_file
+    tracer.tracer.configure(level="", log_path="")
 
 
-def test_trace_function(tracer_with_file):
+def test_trace_function(trace_file):
     """@trace on function: returns correct value, logs to file."""
-    tracer, log_file = tracer_with_file
-
     @tracer.trace
     def add(a, b):
         return a + b
 
     assert add(2, 3) == 5
 
-    records = [json.loads(line) for line in log_file.read_text().strip().split("\n")]
+    records = [json.loads(line) for line in trace_file.read_text().strip().split("\n")]
     assert any(r.get("event") == "enter" for r in records)
     assert any(r.get("event") == "exit" for r in records)
 
 
-def test_trace_method(tracer_with_file):
+def test_trace_method(trace_file):
     """@trace on method: wraps method and tracks class name."""
-    tracer, log_file = tracer_with_file
-
     class Calculator:
         @tracer.trace
         def add(self, a, b):
@@ -46,15 +37,13 @@ def test_trace_method(tracer_with_file):
     calc = Calculator()
     assert calc.add(2, 3) == 5
 
-    records = [json.loads(line) for line in log_file.read_text().strip().split("\n")]
+    records = [json.loads(line) for line in trace_file.read_text().strip().split("\n")]
     names = [r.get("name", "") for r in records]
     assert any("Calculator.add" in n for n in names)
 
 
-def test_trace_hierarchy(tracer_with_file):
+def test_trace_hierarchy(trace_file):
     """Nested calls track parent-child relationships."""
-    tracer, log_file = tracer_with_file
-
     @tracer.trace
     def outer():
         return inner()
@@ -65,7 +54,7 @@ def test_trace_hierarchy(tracer_with_file):
 
     outer()
 
-    records = [json.loads(line) for line in log_file.read_text().strip().split("\n")]
+    records = [json.loads(line) for line in trace_file.read_text().strip().split("\n")]
     enter_events = [r for r in records if r.get("event") == "enter"]
 
     outer_id = next(r["call_id"] for r in enter_events if "outer" in r.get("name", ""))
@@ -73,13 +62,9 @@ def test_trace_hierarchy(tracer_with_file):
     assert inner_record.get("parent_id") == outer_id
 
 
-def test_trace_disabled(monkeypatch):
+def test_trace_disabled():
     """Disabled tracing has zero overhead."""
-    monkeypatch.delenv("TRACE_LEVEL", raising=False)
-    monkeypatch.delenv("TRACE_LOG", raising=False)
-    import importlib
-    import tracer
-    importlib.reload(tracer)
+    tracer.tracer.configure(level="", log_path="")
 
     @tracer.trace
     def simple():
@@ -88,10 +73,8 @@ def test_trace_disabled(monkeypatch):
     assert simple() == 42
 
 
-def test_trace_captures_errors(tracer_with_file):
+def test_trace_captures_errors(trace_file):
     """Tracer logs exceptions."""
-    tracer, log_file = tracer_with_file
-
     @tracer.trace
     def failing():
         raise ValueError("oops")
@@ -99,6 +82,6 @@ def test_trace_captures_errors(tracer_with_file):
     with pytest.raises(ValueError):
         failing()
 
-    records = [json.loads(line) for line in log_file.read_text().strip().split("\n")]
+    records = [json.loads(line) for line in trace_file.read_text().strip().split("\n")]
     exit_record = next(r for r in records if r.get("event") == "exit")
     assert "oops" in exit_record.get("error", "")
