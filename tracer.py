@@ -172,10 +172,7 @@ class Tracer:
 
 
 # Default instance from environment
-tracer = Tracer(
+trace = Tracer(
     level=os.getenv("TRACE_LEVEL", ""),
     log_path=os.getenv("TRACE_LOG", "")
 )
-
-# Backward-compatible alias
-trace = tracer

@@ -9,9 +9,9 @@ import tracer
 def trace_file(tmp_path):
     """Enable tracing with file output."""
     log_file = tmp_path / "trace.jsonl"
-    tracer.tracer.configure(level="debug", log_path=str(log_file))
+    tracer.trace.configure(level="debug", log_path=str(log_file))
     yield log_file
-    tracer.tracer.configure(level="", log_path="")
+    tracer.trace.configure(level="", log_path="")
 
 
 def test_trace_function(trace_file):
@@ -64,7 +64,7 @@ def test_trace_hierarchy(trace_file):
 
 def test_trace_disabled():
     """Disabled tracing has zero overhead."""
-    tracer.tracer.configure(level="", log_path="")
+    tracer.trace.configure(level="", log_path="")
 
     @tracer.trace
     def simple():
