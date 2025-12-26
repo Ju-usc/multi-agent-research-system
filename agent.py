@@ -121,6 +121,7 @@ class Agent(dspy.Module):
             AgentSignature,
             tools=list(self.lead_agent_tools.values()),
         )
+        self.lead_agent.lm = self.agent_lm
 
     def forward(self, query: str) -> dspy.Prediction:
         return self.lead_agent(query=query)
@@ -134,7 +135,7 @@ class Agent(dspy.Module):
         self.fs_tool.root = work_dir
         work_dir.mkdir(parents=True, exist_ok=True)
         self.web_search_tool.call_count = 0
-        self.todo_list_tool._todos = []
+        self.todo_list_tool.clear()
 
 
 def parse_args():
@@ -170,7 +171,8 @@ def main() -> None:
 
     agent = Agent(config=config)
     result = agent(query=args.query)
-    dspy.inspect_history(n=5)
+    if logger.isEnabledFor(logging.DEBUG):
+        dspy.inspect_history(n=10)
 
     print(result.answer)
 

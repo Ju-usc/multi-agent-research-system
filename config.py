@@ -17,11 +17,6 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
 
 # ========== MODEL CONFIGURATION ==========
-
-# Default models - based on feature/metrics-eval testing:
-# kimi-k2: Reliable tool calling, ~5-6 min/example, no stability issues
-# grok-4.1-fast: Very thorough (~30 searches), but slow (~29 min/example)
-# See MODEL_NOTES below for full testing results
 DEFAULT_LEAD_MODEL = "openrouter/moonshotai/kimi-k2:free"
 DEFAULT_SUB_MODEL = "openrouter/moonshotai/kimi-k2:free"
 DEFAULT_GRADER_MODEL = "openai/gpt-5"
@@ -31,18 +26,6 @@ DEFAULT_SUB_MAX_TOKENS = 16000
 DEFAULT_GRADER_MAX_TOKENS = 16000
 DEFAULT_REFLECTOR_MAX_TOKENS = 32000
 DEFAULT_TEMPERATURE = 1.0
-
-# Testing notes from feature/metrics-eval branch (for reference when choosing models):
-# ┌─────────────────────┬─────────────┬─────────────────────────────────────────────┐
-# │ Model               │ Recommended │ Notes                                       │
-# ├─────────────────────┼─────────────┼─────────────────────────────────────────────┤
-# │ kimi-k2             │ ✓ DEFAULT   │ Reliable, ~5-6 min, good speed/quality      │
-# │ grok-4.1-fast       │ ✓ Lead      │ Very thorough, ~29 min, best for quality    │
-# │ deepseek-v3.2       │ ✓ Paid      │ ~6.5 min, 8 searches, good balance          │
-# │ qwen3-coder         │ ~ Coding    │ Works, but coding-focused                   │
-# │ deepseek-r1t        │ ✗           │ Did NOT use websearch (0 calls)             │
-# │ glm-4.5-air         │ ✗           │ Unstable ("cannot schedule new futures")    │
-# └─────────────────────┴─────────────┴─────────────────────────────────────────────┘
 
 
 class ModelConfig:
