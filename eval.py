@@ -303,7 +303,7 @@ def main() -> None:
     result, predictions = evaluator.run(program, examples)
 
     # Workaround for DSPy/LiteLLM cleanup hang
-    start_cleanup_watchdog(grace_period_seconds=30)
+    start_cleanup_watchdog()
 
     print("\n" + "=" * 50)
     print(f"📈 {args.metric.title()} Score: {result.score:.4f}")

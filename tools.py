@@ -194,9 +194,7 @@ class SubagentTool:
         new_signature = ExecuteSubagentTask.with_instructions(instructions=new_instructions)
 
         subagent = dspy.ReAct(new_signature, tools=self._tools, max_iters=task.tool_budget)
-        subagent.lm = self._lm
-        subagent.adapter = self._adapter
-        
+
         with dspy.context(lm=self._lm, adapter=self._adapter):
             prediction = subagent(task=task)
 
