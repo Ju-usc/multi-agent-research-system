@@ -128,7 +128,8 @@ class Agent(dspy.Module):
         Args:
             work_dir: New workspace directory (will be created if needed)
         """
-        self.fs_tool.root = work_dir
+        # absolute path required for _safe_path() sandbox check
+        self.fs_tool.root = work_dir.resolve()
         work_dir.mkdir(parents=True, exist_ok=True)
         self.web_search_tool.call_count = 0
         self.todo_list_tool.clear()
