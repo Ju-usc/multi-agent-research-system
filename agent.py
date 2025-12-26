@@ -6,6 +6,7 @@ from dspy.adapters.chat_adapter import ChatAdapter
 
 from config import ModelConfig, lm_kwargs_for
 from tools import WebSearchTool, FileSystemTool, TodoListTool, SubagentTool, ParallelToolCall
+from tracer import trace
 from utils import create_model_cli_parser
 
 logger = logging.getLogger(__name__)
@@ -122,6 +123,7 @@ class Agent(dspy.Module):
             tools=list(self.lead_agent_tools.values()),
         )
 
+    @trace
     def forward(self, query: str) -> dspy.Prediction:
         return self.lead_agent(query=query)
 

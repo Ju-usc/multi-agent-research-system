@@ -47,24 +47,42 @@ Run the lead agent from the repository root.
 uv run python agent.py --query "Summarize recent innovations in AI agent collaboration frameworks."
 ```
 
-Swap models with the preset flag when you want to test different providers.
+Swap models with CLI flags:
 
 ```bash
-uv run python agent.py --model kimi-k2 --query "Summarize recent innovations in AI agent collaboration frameworks."
+uv run python agent.py --lead openrouter/deepseek/deepseek-v3.2 --query "..."
 ```
 
-## Logs
+## Tracing
 
-CLI runs emit structured traces under `logs/` by default.
-
-Use `TRACE_LOG_FILENAME` to pick an easy-to-remember name.
+Non-invasive call tracing via `@trace` decorator. Zero overhead when disabled.
 
 ```bash
-TRACE_LOG_FILENAME=trace-ai-collab.log LOG_LEVEL=DEBUG \
-  uv run python agent.py --query "Summarize recent innovations in AI agent collaboration frameworks."
+# Terminal output (human-readable)
+TRACE_LEVEL=info uv run python agent.py --query "..."
+
+# File output (JSON lines for analysis)
+TRACE_LOG=logs/run.jsonl uv run python agent.py --query "..."
+
+# Both
+TRACE_LEVEL=debug TRACE_LOG=logs/run.jsonl uv run python agent.py --query "..."
 ```
 
-The example above writes `logs/trace-ai-collab.log`. Create directories ahead of time if you specify a path.
+**Levels:**
+| Level | Shows |
+|-------|-------|
+| `info` | Args + result snippets (truncated to 200 chars) |
+| `debug` | Full args + results (no truncation) |
+
+**Example output (info):**
+```
+[10:23:45.123] -> Agent.forward(query=What is AI?)
+[10:23:45.130]   -> WebSearchTool.search(query=AI definition...)
+[10:23:45.635]   <- WebSearchTool.search [505ms] ok -> {'results': [{'title': '...
+[10:23:46.500] <- Agent.forward [1377ms] ok -> The answer is...
+```
+
+See `tracer.py` for implementation details.
 
 ## Evaluation
 

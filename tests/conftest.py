@@ -12,7 +12,13 @@ pytest best practices. This conftest.py is automatically loaded before any test
 execution, ensuring all test files benefit from these mocks without duplication.
 """
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock
+
+# Add project root to path for imports
+PROJECT_ROOT = Path(__file__).parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 
 # Mock langfuse before any test imports

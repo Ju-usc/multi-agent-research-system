@@ -59,7 +59,7 @@ def evaluator(mock_config, mock_args, monkeypatch):
 def test_calculate_lm_cost_basic(evaluator):
     """Test LM cost calculation with basic token usage."""
     usage = {
-        "openai/gpt-5-mini": {
+        "openrouter/x-ai/grok-4.1-fast": {
             "prompt_tokens": 1000,
             "completion_tokens": 500,
             "prompt_tokens_details": {"cached_tokens": 0}
@@ -68,17 +68,17 @@ def test_calculate_lm_cost_basic(evaluator):
     
     cost = evaluator.calculate_lm_cost(usage)
     
-    # openai/gpt-5-mini: $0.25 per 1M input, $2.00 per 1M output
-    # 1000 tokens / 1M * $0.25 = $0.00025
-    # 500 tokens / 1M * $2.00 = $0.001
-    # Total: $0.00125
-    assert cost == pytest.approx(0.00125)
+    # grok-4.1-fast: $0.20 per 1M input, $0.50 per 1M output
+    # 1000 tokens / 1M * $0.20 = $0.0002
+    # 500 tokens / 1M * $0.50 = $0.00025
+    # Total: $0.00045
+    assert cost == pytest.approx(0.00045)
 
 
 def test_calculate_lm_cost_with_caching(evaluator):
-    """Test LM cost calculation with cached tokens."""
+    """Test LM cost calculation with cached tokens (no cache discount for grok)."""
     usage = {
-        "openai/gpt-5-mini": {
+        "openrouter/x-ai/grok-4.1-fast": {
             "prompt_tokens": 2000,
             "completion_tokens": 500,
             "prompt_tokens_details": {"cached_tokens": 1000}
@@ -87,12 +87,11 @@ def test_calculate_lm_cost_with_caching(evaluator):
     
     cost = evaluator.calculate_lm_cost(usage)
     
-    # openai/gpt-5-mini: $0.25 per 1M input, $0.025 per 1M cached, $2.00 per 1M output
-    # Non-cached: 1000 tokens / 1M * $0.25 = $0.00025
-    # Cached: 1000 tokens / 1M * $0.025 = $0.000025
-    # Output: 500 tokens / 1M * $2.00 = $0.001
-    # Total: $0.001275
-    assert cost == pytest.approx(0.001275)
+    # grok-4.1-fast: $0.20 per 1M input, $0.50 per 1M output (no cached_input pricing)
+    # Input: 2000 tokens / 1M * $0.20 = $0.0004
+    # Output: 500 tokens / 1M * $0.50 = $0.00025
+    # Total: $0.00065
+    assert cost == pytest.approx(0.00065)
 
 
 def test_calculate_lm_cost_unknown_model(evaluator):
@@ -113,12 +112,12 @@ def test_calculate_lm_cost_unknown_model(evaluator):
 def test_calculate_lm_cost_multiple_models(evaluator):
     """Test LM cost calculation with multiple models."""
     usage = {
-        "openai/gpt-5-mini": {
+        "openrouter/x-ai/grok-4.1-fast": {
             "prompt_tokens": 1000,
             "completion_tokens": 500,
             "prompt_tokens_details": {"cached_tokens": 0}
         },
-        "openai/gpt-5": {
+        "openrouter/deepseek/deepseek-v3.2": {
             "prompt_tokens": 500,
             "completion_tokens": 200,
             "prompt_tokens_details": {"cached_tokens": 0}
@@ -127,10 +126,10 @@ def test_calculate_lm_cost_multiple_models(evaluator):
     
     cost = evaluator.calculate_lm_cost(usage)
     
-    # gpt-5-mini: (1000/1M * $0.25) + (500/1M * $2.00) = $0.00025 + $0.001 = $0.00125
-    # gpt-5: (500/1M * $1.25) + (200/1M * $10.00) = $0.000625 + $0.002 = $0.002625
-    # Total: $0.003875
-    assert cost == pytest.approx(0.003875)
+    # grok-4.1-fast: (1000/1M * $0.20) + (500/1M * $0.50) = $0.0002 + $0.00025 = $0.00045
+    # deepseek-v3.2: (500/1M * $0.24) + (200/1M * $0.38) = $0.00012 + $0.000076 = $0.000196
+    # Total: $0.000646
+    assert cost == pytest.approx(0.000646)
 
 
 def test_calculate_metrics_correct_answer(evaluator):
@@ -140,7 +139,7 @@ def test_calculate_metrics_correct_answer(evaluator):
     pred.elapsed_seconds = 2.0
     pred.websearch_calls = 1
     pred.get_lm_usage = lambda: {
-        "openai/gpt-5-mini": {
+        "openrouter/x-ai/grok-4.1-fast": {
             "prompt_tokens": 1000,
             "completion_tokens": 500,
             "prompt_tokens_details": {"cached_tokens": 0}
@@ -154,9 +153,9 @@ def test_calculate_metrics_correct_answer(evaluator):
     
     assert metrics["accuracy"] == 1.0
     assert metrics["elapsed_seconds"] == 2.0
-    assert metrics["lm_cost_usd"] == pytest.approx(0.00125)  # $0.00125 as calculated above
+    assert metrics["lm_cost_usd"] == pytest.approx(0.00045)  # grok pricing
     assert metrics["web_cost_usd"] == pytest.approx(WEBSEARCH_COST_PER_CALL_USD)
-    assert metrics["total_cost_usd"] == pytest.approx(0.00125 + WEBSEARCH_COST_PER_CALL_USD)
+    assert metrics["total_cost_usd"] == pytest.approx(0.00045 + WEBSEARCH_COST_PER_CALL_USD)
     assert metrics["websearch_calls"] == 1
     assert "efficiency_temp" in metrics
 
