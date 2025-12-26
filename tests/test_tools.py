@@ -167,3 +167,34 @@ def test_parallel_tool_call_reports_failures(monkeypatch):
     assert "boom" in error_result["message"]
     assert "kaboom" in error_result["message"]
 
+
+def test_filesystem_tool_blocks_path_traversal(tmp_path):
+    fs = tools.FileSystemTool(root=tmp_path / "sandbox")
+    
+    # Valid paths work
+    result = json.loads(fs.write("valid.txt", "content"))
+    assert result["isError"] is False
+    
+    result = json.loads(fs.read("valid.txt"))
+    assert result["isError"] is False
+    assert result["message"] == "content"
+    
+    # Path traversal blocked
+    result = json.loads(fs.write("../escape.txt", "bad"))
+    assert result["isError"] is True
+    assert "Invalid path" in result["message"]
+    
+    result = json.loads(fs.read("../escape.txt"))
+    assert result["isError"] is True
+    assert "Invalid path" in result["message"]
+    
+    # Absolute paths blocked
+    result = json.loads(fs.write("/etc/passwd", "bad"))
+    assert result["isError"] is True
+    assert "Invalid path" in result["message"]
+    
+    # Nested traversal blocked
+    result = json.loads(fs.write("subdir/../../escape.txt", "bad"))
+    assert result["isError"] is True
+    assert "Invalid path" in result["message"]
+

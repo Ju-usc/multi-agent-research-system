@@ -14,7 +14,6 @@ from config import (
     PERPLEXITY_API_KEY,
     WEBSEARCH_MAX_RESULTS,
     WEBSEARCH_MAX_TOKENS_PER_PAGE,
-    PARALLEL_THREADS,
     FILESYSTEM_TREE_MAX_DEPTH,
 )
 from models import (
@@ -75,7 +74,7 @@ class WebSearchTool:
 class ParallelToolCall:
     """Run multiple tool invocations concurrently."""
 
-    def __init__(self, tools: dict[str, Any], *, num_threads: int = PARALLEL_THREADS) -> None:
+    def __init__(self, tools: dict[str, Any], *, num_threads: int = 4) -> None:
         self.tools = tools
         self._num_threads = num_threads
 
@@ -109,19 +108,29 @@ class FileSystemTool:
     """Sandboxed file system for research artifacts."""
 
     def __init__(self, root: Path | str = "memory"):
-        self.root = Path(root) if isinstance(root, str) else root
+        self.root = Path(root).resolve() if isinstance(root, str) else root.resolve()
         self.root.mkdir(parents=True, exist_ok=True)
 
+    def _safe_path(self, path: str) -> Path | None:
+        """Resolve path and verify it's inside sandbox. Returns None if invalid."""
+        resolved = (self.root / path).resolve()
+        if resolved.is_relative_to(self.root):
+            return resolved
+        return None
     @trace
     def write(self, path: str, content: str) -> str:
-        file_path = self.root / path
+        file_path = self._safe_path(path)
+        if file_path is None:
+            return str(ToolResponse(isError=True, message=f"Invalid path: {path}"))
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content)
         return str(ToolResponse(isError=False, message=f"Written to {path}"))
 
     @trace
     def read(self, path: str) -> str:
-        file_path = self.root / path
+        file_path = self._safe_path(path)
+        if file_path is None:
+            return str(ToolResponse(isError=True, message=f"Invalid path: {path}"))
         if not file_path.exists():
             return str(ToolResponse(isError=True, message=f"File not found: {path}"))
         return str(ToolResponse(isError=False, message=file_path.read_text()))

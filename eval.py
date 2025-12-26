@@ -6,7 +6,6 @@ Evaluates the multi-agent research system on BrowseComp using DSPy's built-in ev
 
 import time
 import logging
-from pathlib import Path
 
 import dspy
 from dspy.adapters.chat_adapter import ChatAdapter
@@ -242,7 +241,6 @@ def _parse_args():
     parser.add_argument("--optimize", action="store_true", help="Run GEPA optimization")
     parser.add_argument("--optimize-steps", type=int, default=10)
     parser.add_argument("--train-size", type=float, default=0.7)
-    parser.add_argument("--save-metrics", type=str, help="Save detailed metrics to JSON")
     return parser.parse_args()
 
 

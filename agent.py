@@ -70,7 +70,7 @@ class Agent(dspy.Module):
             ),
         }
 
-        subagent_parallel_tool = ParallelToolCall(self.subagent_tools, num_threads=4)
+        subagent_parallel_tool = ParallelToolCall(self.subagent_tools)
         self.subagent_tools["parallel_tool_call"] = dspy.Tool(
             subagent_parallel_tool,
             name="parallel_tool_call",
@@ -111,7 +111,7 @@ class Agent(dspy.Module):
             ),
         }
         
-        lead_parallel_tool = ParallelToolCall(self.lead_agent_tools, num_threads=4)
+        lead_parallel_tool = ParallelToolCall(self.lead_agent_tools)
         self.lead_agent_tools["parallel_tool_call"] = dspy.Tool(
             lead_parallel_tool,
             name="parallel_tool_call",
@@ -123,6 +123,7 @@ class Agent(dspy.Module):
             tools=list(self.lead_agent_tools.values()),
         )
         self.lead_agent.lm = self.agent_lm
+        self.lead_agent.adapter = ChatAdapter()
 
     @trace
     def forward(self, query: str) -> dspy.Prediction:
@@ -160,16 +161,6 @@ def main() -> None:
 
     config = ModelConfig(lead=args.lead, sub=args.sub)
     logger.info("Models | lead=%s sub=%s", config.lead, config.sub)
-
-    dspy.configure(
-        lm=dspy.LM(
-            model=config.lead,
-            temperature=config.temperature,
-            max_tokens=config.lead_max_tokens,
-            **lm_kwargs_for(config.lead),
-        ),
-        adapter=ChatAdapter(),
-    )
 
     agent = Agent(config=config)
     result = agent(query=args.query)

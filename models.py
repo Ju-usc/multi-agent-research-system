@@ -17,6 +17,7 @@ class ToolResponse(BaseModel):
 class SubagentTask(BaseModel):
     """Atomic research task for a subagent."""
     name: str = Field(description="Task identifier for matching results", max_length=50)
+    # exclude=True: prompt is injected into signature.instructions, not serialized to LLM
     prompt: str = Field(description="Prompt for the subagent", exclude=True)
     description: str = Field(description="Description of the task")
     tool_budget: int = Field(default=3, ge=1, le=15, description="Max tool calls")
@@ -24,7 +25,7 @@ class SubagentTask(BaseModel):
 
 class SubagentResult(BaseModel):
     """Subagent output."""
-    name: str = Field(default="", description="Task identifier", exclude=True)
+    name: str = Field(default="", description="Task identifier for matching parallel results")
     summary: str = Field(description="2-4 sentence overview of findings")
     detail: Optional[str] = Field(default=None, description="Supplemental detail")
     artifact_path: Optional[str] = Field(default=None, description="Path relative to workspace root")
