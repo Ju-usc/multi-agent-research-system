@@ -43,16 +43,15 @@ class WebSearchTool:
     @trace
     def __call__(
         self,
-        queries: list[str],
+        queries: str | list[str],
         max_results: Optional[int] = WEBSEARCH_MAX_RESULTS,
         max_tokens_per_page: Optional[int] = WEBSEARCH_MAX_TOKENS_PER_PAGE,
     ) -> str:
         """Search web via Perplexity. Batch queries for efficiency."""
         self.call_count += 1
         try:
-            query_param = queries if len(queries) != 1 else queries[0]
             response = self.client.search.create(
-                query=query_param,
+                query=queries,
                 max_results=max_results,
                 max_tokens_per_page=max_tokens_per_page,
             )
