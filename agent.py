@@ -57,28 +57,21 @@ class Agent(dspy.Module):
         )
 
 
-        self.subagent_tools = {
-            "web_search": dspy.Tool(
+        subagent_tools = [
+            dspy.Tool(
                 self.web_search_tool,
                 name="web_search",
                 desc="Search the web. Returns JSON: {isError: bool, message: str} with search results in message.",
             ),
-            "filesystem_write": dspy.Tool(
+            dspy.Tool(
                 self.fs_tool.write,
                 name="filesystem_write",
                 desc="Write content to path. Returns JSON: {isError: bool, message: str}. Use relative paths like 'results/data.json'.",
             ),
-        }
-
-        subagent_parallel_tool = ParallelToolCall(self.subagent_tools)
-        self.subagent_tools["parallel_tool_call"] = dspy.Tool(
-            subagent_parallel_tool,
-            name="parallel_tool_call",
-            desc="Run multiple subagent tools in parallel with a single call.",
-        )
+        ]
 
         self.subagent_tool = SubagentTool(
-            tools=list(self.subagent_tools.values()),
+            tools=subagent_tools,
             lm=self.subagent_lm,
             adapter=ChatAdapter(),
         )
