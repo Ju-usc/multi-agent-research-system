@@ -31,7 +31,7 @@ def test_trace_method(trace_file):
     """@trace on method: wraps method and tracks class name."""
     class Calculator:
         @tracer.trace
-        def add(self, a, b):
+        def add(self, a,  b):
             return a + b
 
     calc = Calculator()

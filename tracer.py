@@ -96,8 +96,11 @@ class Tracer:
             finally:
                 end = datetime.now()
                 duration_ms = (end - start).total_seconds() * 1000
-                self._log_terminal("exit", name, depth, end, duration_ms=duration_ms, error=error, result=result)
-                self._log_file("exit", name, call_id, parent_id, depth, end, duration_ms=duration_ms, error=error, result=result)
+                try:
+                    self._log_terminal("exit", name, depth, end, duration_ms=duration_ms, error=error, result=result)
+                    self._log_file("exit", name, call_id, parent_id, depth, end, duration_ms=duration_ms, error=error, result=result)
+                except Exception:
+                    pass  # Don't mask the original exception
                 self._stack.set(self._stack.get()[:-1])
 
         return wrapper
