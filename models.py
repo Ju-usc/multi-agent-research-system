@@ -43,3 +43,24 @@ class ExecuteSubagentTask(dspy.Signature):
     """Execute a micro-task and return findings."""
     task: SubagentTask = dspy.InputField(desc="The task to complete")
     final_result: SubagentResult = dspy.OutputField(desc="Structured output")
+
+
+class LLMJudgeAnswer(BaseModel):
+    """Answer from LLM judge on prediction correctness."""
+    is_correct: bool
+    extracted_answer: str
+    reasoning: str
+
+
+class BrowseCompJudge(dspy.Signature):
+    """Judge whether the research report correctly answers the question.
+    
+    Focus only on whether the report contains the correct answer, not on quality of reasoning.
+    Allow small variations in wording or format.
+    Answer False if answer is missing, incorrect, or significantly different.
+    """
+    question: str = dspy.InputField()
+    report: str = dspy.InputField()
+    correct_answer: str = dspy.InputField()
+    
+    answer: LLMJudgeAnswer = dspy.OutputField()
