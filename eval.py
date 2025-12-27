@@ -176,7 +176,7 @@ class BrowseCompEvaluator:
             track_best_outputs=True,
             candidate_selection_strategy='pareto',
             use_merge=True,
-            optimize_tool_descriptions=True,  # Optimize tool descriptions alongside signatures
+            enable_tool_optimization=True,  # Optimize tool descriptions alongside signatures
         )
         
         return optimizer.compile(student=program, trainset=train)

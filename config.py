@@ -14,7 +14,7 @@ load_dotenv(override=True)
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
+PARALLEL_API_KEY = os.getenv("PARALLEL_API_KEY")
 
 # ========== MODEL CONFIGURATION ==========
 
@@ -60,9 +60,6 @@ def lm_kwargs_for(model_id: str) -> dict[str, str]:
 
 
 # ========== TOOL DEFAULTS ==========
-# WebSearch defaults
-WEBSEARCH_MAX_RESULTS = 5  # Results per query
-WEBSEARCH_MAX_TOKENS_PER_PAGE = 1024  # Content truncation limit
 
 # Filesystem tree display
 FILESYSTEM_TREE_MAX_DEPTH = 3

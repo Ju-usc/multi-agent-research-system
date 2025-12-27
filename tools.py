@@ -9,11 +9,9 @@ from typing import Any, Optional
 import json
 import dspy
 from pathlib import Path
-from perplexity import Perplexity
+from parallel import Parallel
 from config import (
-    PERPLEXITY_API_KEY,
-    WEBSEARCH_MAX_RESULTS,
-    WEBSEARCH_MAX_TOKENS_PER_PAGE,
+    PARALLEL_API_KEY,
     FILESYSTEM_TREE_MAX_DEPTH,
 )
 from models import (
@@ -31,42 +29,41 @@ logger = logging.getLogger(__name__)
 # ---------- WebSearch ----------
 
 class WebSearchTool:
-    """Perplexity search supporting up to 5 queries (max 20 results)."""
+    """Web search via Parallel AI."""
 
     def __init__(self) -> None:
-        if not PERPLEXITY_API_KEY:
-            raise RuntimeError("PERPLEXITY_API_KEY must be set to use WebSearchTool")
-
-        self.client = Perplexity(api_key=PERPLEXITY_API_KEY)
+        if not PARALLEL_API_KEY:
+            raise RuntimeError("PARALLEL_API_KEY must be set")
+        self._client: Parallel | None = None
         self.call_count = 0
 
     @trace
     def __call__(
         self,
-        queries: str | list[str],
-        max_results: Optional[int] = WEBSEARCH_MAX_RESULTS,
-        max_tokens_per_page: Optional[int] = WEBSEARCH_MAX_TOKENS_PER_PAGE,
+        queries: list[str],
+        objective: str,
+        max_results: Optional[int] = None,
     ) -> str:
-        """Search web via Perplexity. Batch queries for efficiency."""
+        """Search web via Parallel AI."""
         self.call_count += 1
+        
+        if self._client is None:
+            self._client = Parallel(api_key=PARALLEL_API_KEY)
+
         try:
-            response = self.client.search.create(
-                query=queries,
+            response = self._client.beta.search(
+                objective=objective,
+                search_queries=queries,
                 max_results=max_results,
-                max_tokens_per_page=max_tokens_per_page,
             )
-            results = response.results
-        except Exception as exc:
-            return str(ToolResponse(isError=True, message=f"Search failed for {queries}: {exc}"))
+        except Exception as error:
+            return str(ToolResponse(isError=True, message=f"Search failed: {error}"))
 
         lines: list[str] = []
-        for idx, result in enumerate(results, 1):
-            title = result.title
-            snippet = result.snippet
-            url = result.url
-            date = result.date
-            last_updated = result.last_updated
-            lines.append(f"{idx}. {title}\n{snippet}\n{url}\n{date}\n{last_updated}")
+        for idx, result in enumerate(response.results, 1):
+            title = result.title or "Untitled"
+            excerpt = "\n".join(result.excerpts or [])
+            lines.append(f"{idx}. {title}\n{excerpt}\n{result.url}")
 
         return str(ToolResponse(isError=False, message="\n\n".join(lines)))
 
