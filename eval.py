@@ -165,21 +165,20 @@ class BrowseCompEvaluator:
         
         return ScoreWithFeedback(score=accuracy, feedback=feedback)
     
-    def optimize_with_gepa(self, program: MultiAgentResearchSystem, train: list) -> MultiAgentResearchSystem:
+    def optimize_with_gepa(self, program: MultiAgentResearchSystem, train: list, val: list) -> MultiAgentResearchSystem:
         """Run GEPA optimization on program."""
         optimizer = GEPA(
             metric=self.metric,
             reflection_lm=self.reflection_lm,
-            max_full_evals=self.args.optimize_steps,  # Use explicit steps (can't combine with auto)
+            max_metric_calls=self.args.max_metric_calls,
             num_threads=self.args.num_threads,
             track_stats=True,
             track_best_outputs=True,
-            candidate_selection_strategy='pareto',
-            use_merge=True,
-            enable_tool_optimization=True,  # Optimize tool descriptions alongside signatures
+            enable_tool_optimization=True,
+            component_selector="all",
         )
         
-        return optimizer.compile(student=program, trainset=train)
+        return optimizer.compile(student=program, trainset=train, valset=val)
     
     def run(self, program: MultiAgentResearchSystem, examples: list) -> tuple:
         """Run evaluation and return (result, predictions)."""
@@ -217,11 +216,10 @@ class BrowseCompEvaluator:
 
 def _parse_args():
     parser = create_model_cli_parser("Run BrowseComp evaluation")
-    parser.add_argument("--num-examples", type=int, default=10, help="Number of dataset examples")
-    parser.add_argument("--num-threads", type=int, default=2, help="Parallel evaluation threads")
+    parser.add_argument("--num-examples", type=int, default=8, help="Number of dataset examples (split 50/50 train/val)")
+    parser.add_argument("--num-threads", type=int, default=4, help="Parallel evaluation threads")
     parser.add_argument("--optimize", action="store_true", help="Run GEPA optimization")
-    parser.add_argument("--optimize-steps", type=int, default=10)
-    parser.add_argument("--train-size", type=float, default=0.7)
+    parser.add_argument("--max-metric-calls", type=int, default=15, help="Max metric calls for GEPA")
     return parser.parse_args()
 
 
@@ -262,35 +260,71 @@ def main() -> None:
     # Create agent program
     program = MultiAgentResearchSystem(config=config)
 
-    # GEPA optimization if requested
     if args.optimize:
-        print(f"\n🧬 GEPA Optimization ({args.optimize_steps} steps)")
-        print(f"🤖 Using reflection model: {OPTIMIZER_MODEL}")
-        train, test = dataset.split(train_size=args.train_size)
-        print(f"📊 Split: {len(train)} train, {len(test)} test")
+        train, val = dataset.split(train_size=0.5)
         
-        program = evaluator.optimize_with_gepa(program, train)
+        logger.info("GEPA optimization starting")
+        print(f"\n🧬 GEPA Optimization (max_metric_calls={args.max_metric_calls})")
+        print(f"🤖 Reflection model: {OPTIMIZER_MODEL}")
+        print(f"📊 Train: {len(train)}, Val: {len(val)}")
         
-        print("\n✨ Optimization complete!")
-        print(f"📝 Optimized {len(list(program.named_predictors()))} predictor(s)")
-        for name, pred in program.named_predictors():
-            instr = getattr(pred.signature, 'instructions', '<no instructions>')
-            print(f"  • {name}: {instr[:80]}..." if len(instr) > 80 else f"  • {name}: {instr}")
+        program = evaluator.optimize_with_gepa(program, train, val)
         
-        examples = test  # Evaluate on test set
+        results = program.detailed_results
+        best_score = results.val_aggregate_scores[results.best_idx]
+        
+        print("\n" + "=" * 50)
+        print(f"📈 Best score: {best_score:.4f}")
+        print(f"📊 Examples: {len(examples)}")
+        print(f"🧬 Candidates: {len(results.candidates)}")
+        print(f"🔄 Metric calls: {results.total_metric_calls}")
+        
+        logger.info(f"GEPA complete: score={best_score:.4f}, candidates={len(results.candidates)}")
+        
+        # Compare baseline vs optimized prompts
+        baseline = results.candidates[0]
+        optimized = results.candidates[results.best_idx]
+        
+        # Compare predictor instructions
+        print("\n📝 Predictor Instructions:")
+        for (name, base_pred), (_, opt_pred) in zip(
+            baseline.named_predictors(), optimized.named_predictors()
+        ):
+            base_instr = base_pred.signature.instructions
+            opt_instr = opt_pred.signature.instructions
+            changed = "✨" if base_instr != opt_instr else ""
+            
+            print(f"\n{changed} {name}:")
+            print(f"  BASELINE:\n    {base_instr}")
+            print(f"  OPTIMIZED:\n    {opt_instr}")
+            
+            logger.info(f"{name} BASELINE: {base_instr}")
+            logger.info(f"{name} OPTIMIZED: {opt_instr}")
+        
+        # Compare tool descriptions
+        if optimized.tools:
+            print("\n🔧 Tool Descriptions:")
+            for tool_name, tool in optimized.tools.items():
+                base_tool = baseline.tools.get(tool_name)
+                base_desc = base_tool.desc if base_tool else ""
+                opt_desc = tool.desc
+                changed = "✨" if base_desc != opt_desc else ""
+                
+                print(f"\n{changed} {tool_name}:")
+                print(f"  BASELINE:\n    {base_desc}")
+                print(f"  OPTIMIZED:\n    {opt_desc}")
+                
+                logger.info(f"{tool_name} BASELINE: {base_desc}")
+                logger.info(f"{tool_name} OPTIMIZED: {opt_desc}")
+    else:
+        # Evaluation only (no optimization)
+        print("🚀 Evaluating...")
+        result, _ = evaluator.run(program, examples)
+        print("\n" + "=" * 50)
+        print(f"📈 Score: {result.score:.4f}")
+        print(f"📊 Examples: {len(examples)}")
 
-    # Run evaluation
-    print("🚀 Evaluating...")
-    result, predictions = evaluator.run(program, examples)
-
-    # Workaround for DSPy/LiteLLM cleanup hang
     start_cleanup_watchdog()
-
-    print("\n" + "=" * 50)
-    print(f"📈 Score: {result.score:.4f}")
-    print(f"📊 Examples: {len(examples)}")
-    if args.optimize:
-        print(f"🧬 Optimized with GEPA ({args.optimize_steps} steps)")
 
 
 if __name__ == "__main__":
