@@ -7,16 +7,10 @@ from dspy.adapters.chat_adapter import ChatAdapter
 from config import ModelConfig, lm_kwargs_for
 from tools import WebSearchTool, FileSystemTool, TodoListTool, SubagentTool, ParallelToolCall
 from tracer import trace
+from models import AgentSignature
 from utils import create_model_cli_parser
 
 logger = logging.getLogger(__name__)
-
-
-class AgentSignature(dspy.Signature):
-    """Lead agent contract."""
-    query: str = dspy.InputField(desc="User query or research request")
-    answer: str = dspy.OutputField(desc="Answer to the query")
-
 
 class Agent(dspy.Module):
     def __init__(
@@ -61,12 +55,12 @@ class Agent(dspy.Module):
             dspy.Tool(
                 self.web_search_tool,
                 name="web_search",
-                desc="Search the web. Returns JSON: {isError: bool, message: str} with search results in message.",
+                desc="Search the web.",
             ),
             dspy.Tool(
                 self.fs_tool.write,
                 name="filesystem_write",
-                desc="Write content to path. Returns JSON: {isError: bool, message: str}. Use relative paths like 'results/data.json'.",
+                desc="Write content to path.",
             ),
         ]
 
@@ -80,27 +74,27 @@ class Agent(dspy.Module):
             "filesystem_read": dspy.Tool(
                 self.fs_tool.read,
                 name="filesystem_read",
-                desc="Read artifacts. Returns JSON: {isError: bool, message: str} with file content in message.",
+                desc="Read file content.",
             ),
             "filesystem_tree": dspy.Tool(
                 self.fs_tool.tree,
                 name="filesystem_tree",
-                desc="List workspace tree. Returns JSON: {isError: bool, message: str} with directory listing in message.",
+                desc="List workspace tree.",
             ),
             "todo_list_read": dspy.Tool(
                 self.todo_list_tool.read,
                 name="todo_list_read",
-                desc="Fetch To-Do list. Returns JSON: {isError: bool, message: str} with todos in message.",
+                desc="Read To-Do list.",
             ),
             "todo_list_write": dspy.Tool(
                 self.todo_list_tool.write,
                 name="todo_list_write",
-                desc="Write To-Do list. Returns JSON: {isError: bool, message: str}. Always update status after completing tasks.",
+                desc="Write To-Do list.",
             ),
             "subagent_run": dspy.Tool(
                 self.subagent_tool,
                 name="subagent_run",
-                desc="Execute a subagent task. Returns JSON with summary, detail, artifact_path. Use parallel_tool_call for concurrent execution.",
+                desc="Execute a subagent task.",
             ),
         }
         
@@ -108,7 +102,7 @@ class Agent(dspy.Module):
         self.lead_agent_tools["parallel_tool_call"] = dspy.Tool(
             lead_parallel_tool,
             name="parallel_tool_call",
-            desc="Run multiple lead agent tools in parallel. Useful for spawning multiple subagents concurrently.",
+            desc="Run multiple tools in parallel.",
         )
 
         self.lead_agent = dspy.ReAct(

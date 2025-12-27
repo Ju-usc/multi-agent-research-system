@@ -16,20 +16,18 @@ class ToolResponse(BaseModel):
 
 class SubagentTask(BaseModel):
     """Atomic research task for a subagent."""
-    name: str = Field(description="Task identifier for matching results", max_length=50)
+    name: str = Field(description="Name of the task or subagent", max_length=50)
     # exclude=True: prompt is injected into signature.instructions, not serialized to LLM
-    prompt: str = Field(description="Prompt for the subagent", exclude=True)
+    prompt: str = Field(description="Prompt for the subagent that will be appended to the existing instructions", exclude=True)
     description: str = Field(description="Description of the task")
     tool_budget: int = Field(default=3, ge=1, le=15, description="Max tool calls")
 
-
 class SubagentResult(BaseModel):
     """Subagent output."""
-    name: str = Field(default="", description="Task identifier for matching parallel results")
-    summary: str = Field(description="2-4 sentence overview of findings")
-    detail: Optional[str] = Field(default=None, description="Supplemental detail")
-    artifact_path: Optional[str] = Field(default=None, description="Path relative to workspace root")
-
+    name: str = Field(default="", description="Name of the task or subagent")
+    summary: str = Field(description="Summary of the findings")
+    detail: Optional[str] = Field(default=None, description="Detailed findings")
+    artifact_path: Optional[str] = Field(default=None, description="Path to the artifact")
 
 class Todo(BaseModel):
     """Todo list item."""
@@ -38,19 +36,21 @@ class Todo(BaseModel):
     status: Literal["pending", "in_progress", "completed"]
     priority: Literal["low", "medium", "high"]
 
-
-class ExecuteSubagentTask(dspy.Signature):
-    """Execute a micro-task and return findings."""
-    task: SubagentTask = dspy.InputField(desc="The task to complete")
-    final_result: SubagentResult = dspy.OutputField(desc="Structured output")
-
-
 class LLMJudgeAnswer(BaseModel):
     """Answer from LLM judge on prediction correctness."""
     extracted_answer: str
     reasoning: str
     is_correct: bool
 
+class AgentSignature(dspy.Signature):
+    """Lead agent contract."""
+    query: str = dspy.InputField(desc="User query or research request")
+    answer: str = dspy.OutputField(desc="Answer to the query")
+
+class ExecuteSubagentTask(dspy.Signature):
+    """Execute task defined by lead agent and return findings back to lead agent."""
+    task: SubagentTask = dspy.InputField(desc="The task to complete")
+    final_result: SubagentResult = dspy.OutputField(desc="Final result of the task")
 
 class BrowseCompJudge(dspy.Signature):
     """Judge whether the research report correctly answers the question.
@@ -62,5 +62,4 @@ class BrowseCompJudge(dspy.Signature):
     question: str = dspy.InputField()
     report: str = dspy.InputField()
     correct_answer: str = dspy.InputField()
-    
     answer: LLMJudgeAnswer = dspy.OutputField()
