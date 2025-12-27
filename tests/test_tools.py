@@ -54,13 +54,7 @@ def test_web_search_tool(mock_parallel):
     assert mock_parallel.beta.last_kwargs["search_queries"] == ["test query"]
 
 
-def test_web_search_tool_real_api():
-    tool = tools.WebSearchTool()
-    output = tool(queries=["Python programming"], objective="What is Python?")
-    result = json.loads(output)
 
-    assert result["isError"] is False
-    assert len(result["message"]) > 0
 
 
 
