@@ -22,8 +22,8 @@ PARALLEL_API_KEY = os.getenv("PARALLEL_API_KEY")
 # Best agentic tool calling, 2M context, $0.20/M in, $0.50/M out
 DEFAULT_LEAD_MODEL = "openrouter/x-ai/grok-4.1-fast"
 DEFAULT_SUB_MODEL = "openrouter/x-ai/grok-4.1-fast"
-DEFAULT_LEAD_MAX_TOKENS = 16000
-DEFAULT_SUB_MAX_TOKENS = 16000
+DEFAULT_LEAD_MAX_TOKENS = 40000
+DEFAULT_SUB_MAX_TOKENS = 40000
 DEFAULT_TEMPERATURE = 1.0
 
 class ModelConfig:
@@ -70,14 +70,17 @@ WORKSPACE_UUID_LENGTH = 8  # Characters from UUID for directory naming
 # Cleanup watchdog
 CLEANUP_WATCHDOG_TIMEOUT_SECONDS = 30  # Force exit if DSPy/LiteLLM cleanup hangs
 
+# Query timeout (matches OpenAI Deep Research)
+QUERY_TIMEOUT_SECONDS = 600  # 10 min
+
 # ========== EVALUATION MODELS (Fixed for experimental consistency) ==========
 # These models are used for evaluation/optimization across all experiments
 # to eliminate judge/optimizer variance as a confounding variable.
 GRADER_MODEL = "openrouter/google/gemini-3-flash-preview"  # Judges answer correctness
-GRADER_MAX_TOKENS = 16000  # Large budget for reasoning chains
+GRADER_MAX_TOKENS = 40000  # Large budget for reasoning chains
 
 OPTIMIZER_MODEL = "openrouter/google/gemini-3-flash-preview"  # GEPA prompt optimization
-OPTIMIZER_MAX_TOKENS = 32000  # Large budget for prompt refinement
+OPTIMIZER_MAX_TOKENS = 40000  # Large budget for prompt refinement
 
 # ========== COST CONFIGURATION ==========
 
@@ -90,4 +93,6 @@ LM_PRICING = {
     "openrouter/x-ai/grok-4.1-fast": {"input": 0.20, "output": 0.50},
     "openrouter/deepseek/deepseek-v3.2": {"input": 0.24, "output": 0.38},
     "openrouter/google/gemini-3-flash-preview": {"input": 0.10, "output": 0.40},
+    "openrouter/openai/gpt-oss-120b": {"input": 0.039, "output": 0.19},
+    "openrouter/qwen/qwen3-235b-a22b-2507": {"input": 0.071, "output": 0.463},
 }

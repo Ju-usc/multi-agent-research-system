@@ -119,7 +119,7 @@ def test_calculate_lm_cost_multiple_models(evaluator):
 def test_metric_correct_answer(evaluator, mock_judge):
     """Test metric with correct answer."""
     example = dspy.Example(problem="What is 2+2?", answer="4")
-    pred = dspy.Prediction(report="The answer is 4")
+    pred = dspy.Prediction(answer="4", report="The answer is 4")
     pred.elapsed_seconds = 2.0
     pred.websearch_calls = 1
     pred.get_lm_usage = lambda: {
@@ -144,14 +144,14 @@ def test_metric_correct_answer(evaluator, mock_judge):
     assert float(result) == 1.0
     assert pred.metrics["accuracy"] == 1.0
     assert pred.metrics["elapsed_seconds"] == 2.0
-    assert "Expected: 4" in result.feedback
-    assert "Extracted: 4" in result.feedback
+    assert "Ground Truth: 4" in result.feedback
+    assert "Grader Extracted: 4" in result.feedback
 
 
 def test_metric_incorrect_answer(evaluator, mock_judge):
     """Test metric with incorrect answer."""
     example = dspy.Example(problem="What is 2+2?", answer="4")
-    pred = dspy.Prediction(report="The answer is 5")
+    pred = dspy.Prediction(answer="5", report="The answer is 5")
     pred.elapsed_seconds = 1.0
     pred.websearch_calls = 0
     pred.get_lm_usage = lambda: {}
@@ -174,7 +174,7 @@ def test_metric_incorrect_answer(evaluator, mock_judge):
 def test_metric_stores_feedback(evaluator, mock_judge):
     """Test metric stores feedback in ScoreWithFeedback."""
     example = dspy.Example(problem="Q", answer="A")
-    pred = dspy.Prediction(report="A")
+    pred = dspy.Prediction(answer="A", report="A")
     pred.elapsed_seconds = 1.0
     pred.websearch_calls = 1
     pred.get_lm_usage = lambda: {}
@@ -191,13 +191,13 @@ def test_metric_stores_feedback(evaluator, mock_judge):
     
     assert float(result) == 1.0
     assert "Accuracy: 1/1" in result.feedback
-    assert "Reasoning: Correct." in result.feedback
+    assert "Grader Reasoning: Correct." in result.feedback
 
 
 def test_grade_prediction_error_handling(evaluator, mock_judge):
     """Test grade_prediction handles errors gracefully."""
     example = dspy.Example(problem="Q", answer="A")
-    pred = dspy.Prediction(report="A")
+    pred = dspy.Prediction(answer="A", report="A")
     pred.elapsed_seconds = 1.0
     pred.websearch_calls = 0
     pred.get_lm_usage = lambda: {}

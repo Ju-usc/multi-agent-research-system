@@ -22,6 +22,7 @@ from config import (
     GRADER_MAX_TOKENS,
     OPTIMIZER_MODEL,
     OPTIMIZER_MAX_TOKENS,
+    QUERY_TIMEOUT_SECONDS,
     lm_kwargs_for,
 )
 from dataset import BrowseCompDataset
@@ -29,7 +30,6 @@ from utils import (
     create_model_cli_parser,
     start_cleanup_watchdog,
     create_isolated_workspace,
-    cleanup_workspace,
 )
 
 logger = logging.getLogger(__name__)
@@ -54,17 +54,16 @@ class MultiAgentResearchSystem(dspy.Module):
             agent = self.agent.deepcopy()
             agent.reset_workspace(work_dir)
 
-            start = time.perf_counter()
+            start_time = time.perf_counter()
             prediction = agent(problem)
-            elapsed = time.perf_counter() - start
             
             prediction.report = prediction.answer
-            prediction.elapsed_seconds = elapsed
+            prediction.elapsed_seconds = time.perf_counter() - start_time
             prediction.websearch_calls = agent.web_search_tool.call_count
             
             return prediction
         finally:
-            cleanup_workspace(work_dir)
+            pass  # Keep workspace for debugging (was: cleanup_workspace(work_dir))
 
 class BrowseCompEvaluator:
     """Encapsulates BrowseComp evaluation with proper state management."""
@@ -120,8 +119,16 @@ class BrowseCompEvaluator:
         
         return total_cost
     
-    def grade_prediction(self, example: dspy.Example, pred: dspy.Prediction) -> LLMJudgeAnswer | None:
+    def grade_prediction(self, example: dspy.Example, pred: dspy.Prediction) -> LLMJudgeAnswer:
         """Grade prediction using grader LM."""
+        # Skip grader for timeouts
+        if pred.elapsed_seconds > QUERY_TIMEOUT_SECONDS:
+            return LLMJudgeAnswer(
+                is_correct=False,
+                extracted_answer="TIMEOUT - NOT GRADED",
+                reasoning=f"Exceeded {QUERY_TIMEOUT_SECONDS}s limit ({int(pred.elapsed_seconds)}s). Agent's answer: {pred.answer}"
+            )
+        
         try:
             with dspy.context(lm=self.grader_lm):
                 result = self.judge(
@@ -132,15 +139,19 @@ class BrowseCompEvaluator:
             return result.answer
         except Exception as e:
             logger.error(f"Grading error: {e}")
-            return None
+            return LLMJudgeAnswer(
+                is_correct=False,
+                extracted_answer="Error",
+                reasoning="Grading failed"
+            )
 
     def metric(self, example, pred, trace=None, pred_name=None, pred_trace=None) -> ScoreWithFeedback:
         """Unified metric for dspy.Evaluate and GEPA."""
-        grading = self.grade_prediction(example, pred)
+        llm_grading = self.grade_prediction(example, pred)
         
-        accuracy = 1.0 if grading and grading.is_correct else 0.0
-        extracted = grading.extracted_answer if grading else "Error"
-        reasoning = grading.reasoning if grading else "Grading failed"
+        accuracy = 1.0 if llm_grading.is_correct else 0.0
+        extracted_answer = llm_grading.extracted_answer
+        reasoning = llm_grading.reasoning
         
         usage = pred.get_lm_usage() or {}
         total_tokens = sum(
@@ -157,9 +168,10 @@ class BrowseCompEvaluator:
         
         feedback = (
             f"Accuracy: {accuracy:.0f}/1\n"
-            f"Expected: {example.answer}\n"
-            f"Extracted: {extracted}\n"
-            f"Reasoning: {reasoning}\n"
+            f"Agent Answer: {pred.answer}\n"
+            f"Grader Extracted Answer: {extracted_answer}\n"
+            f"Ground Truth: {example.answer}\n"
+            f"Grader Reasoning: {reasoning}\n"
             f"Tokens: {total_tokens:,} | Cost: ${total_cost:.4f} | Time: {pred.elapsed_seconds:.1f}s"
         )
         
@@ -268,9 +280,12 @@ def main() -> None:
         print(f"🤖 Reflection model: {OPTIMIZER_MODEL}")
         print(f"📊 Train: {len(train)}, Val: {len(val)}")
         
-        program = evaluator.optimize_with_gepa(program, train, val)
+        optimized_program = evaluator.optimize_with_gepa(program, train, val)
         
-        results = program.detailed_results
+        # Start watchdog before accessing results (litellm may hang)
+        start_cleanup_watchdog()
+        
+        results = optimized_program.detailed_results
         best_score = results.val_aggregate_scores[results.best_idx]
         
         print("\n" + "=" * 50)
