@@ -20,7 +20,7 @@ class SubagentTask(BaseModel):
     # exclude=True: prompt is injected into signature.instructions, not serialized to LLM
     prompt: str = Field(description="Prompt for the subagent that will be appended to the existing instructions", exclude=True)
     description: str = Field(description="Description of the task")
-    tool_budget: int = Field(default=3, ge=1, le=15, description="Max tool calls")
+    max_steps: int = Field(default=3, ge=1, le=15, description="Max steps to complete task")
     expected_output: Optional[str] = Field(default=None, description="Expected output format or artifact when known")
 
 class SubagentResult(BaseModel):
