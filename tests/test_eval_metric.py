@@ -145,7 +145,7 @@ def test_metric_correct_answer(evaluator, mock_judge):
     assert pred.metrics["accuracy"] == 1.0
     assert pred.metrics["elapsed_seconds"] == 2.0
     assert "Ground Truth: 4" in result.feedback
-    assert "Grader Extracted: 4" in result.feedback
+    assert "Grader Extracted Answer: 4" in result.feedback
 
 
 def test_metric_incorrect_answer(evaluator, mock_judge):

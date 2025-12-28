@@ -1,0 +1,5 @@
+{
+  "scripts": {
+    "setup": "uv sync && ln -sf /Users/juyounglee/Desktop/Projects/multi-agent-research-system/.env .env"
+  }
+}

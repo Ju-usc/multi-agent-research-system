@@ -282,6 +282,10 @@ def main() -> None:
         
         optimized_program = evaluator.optimize_with_gepa(program, train, val)
         
+        # Save optimized program immediately (before any potential crash)
+        optimized_program.save("optimized_program.json")
+        logger.info("Saved optimized program to optimized_program.json")
+        
         # Start watchdog before accessing results (litellm may hang)
         start_cleanup_watchdog()
         
@@ -297,40 +301,50 @@ def main() -> None:
         logger.info(f"GEPA complete: score={best_score:.4f}, candidates={len(results.candidates)}")
         
         # Compare baseline vs optimized prompts
-        baseline = results.candidates[0]
-        optimized = results.candidates[results.best_idx]
+        baseline_program = results.candidates[0]
+        optimized_program = results.candidates[results.best_idx]
+        
+        def get_all_tools(program):
+            """Get all tools from program: {name: tool}"""
+            tools = {}
+            for name, tool in program.agent.lead_agent.tools.items():
+                tools[f"leadagent.{name}"] = tool
+            for tool in program.agent.subagent_tool._tools:
+                tools[f"subagent.{tool.name}"] = tool
+            return tools
         
         # Compare predictor instructions
         print("\n📝 Predictor Instructions:")
-        for (name, base_pred), (_, opt_pred) in zip(
-            baseline.named_predictors(), optimized.named_predictors()
+        for (predictor_name, baseline_program_predictor), (_, optimized_program_predictor) in zip(
+            baseline_program.named_predictors(), optimized_program.named_predictors()
         ):
-            base_instr = base_pred.signature.instructions
-            opt_instr = opt_pred.signature.instructions
-            changed = "✨" if base_instr != opt_instr else ""
+            baseline_program_instructions = baseline_program_predictor.signature.instructions
+            optimized_program_instructions = optimized_program_predictor.signature.instructions
+            marker = "✨" if baseline_program_instructions != optimized_program_instructions else ""
             
-            print(f"\n{changed} {name}:")
-            print(f"  BASELINE:\n    {base_instr}")
-            print(f"  OPTIMIZED:\n    {opt_instr}")
+            print(f"\n{marker} {predictor_name}:")
+            print(f"  BASELINE:\n    {baseline_program_instructions}")
+            print(f"  OPTIMIZED:\n    {optimized_program_instructions}")
             
-            logger.info(f"{name} BASELINE: {base_instr}")
-            logger.info(f"{name} OPTIMIZED: {opt_instr}")
+            logger.info(f"{predictor_name} BASELINE: {baseline_program_instructions}")
+            logger.info(f"{predictor_name} OPTIMIZED: {optimized_program_instructions}")
         
         # Compare tool descriptions
-        if optimized.tools:
-            print("\n🔧 Tool Descriptions:")
-            for tool_name, tool in optimized.tools.items():
-                base_tool = baseline.tools.get(tool_name)
-                base_desc = base_tool.desc if base_tool else ""
-                opt_desc = tool.desc
-                changed = "✨" if base_desc != opt_desc else ""
-                
-                print(f"\n{changed} {tool_name}:")
-                print(f"  BASELINE:\n    {base_desc}")
-                print(f"  OPTIMIZED:\n    {opt_desc}")
-                
-                logger.info(f"{tool_name} BASELINE: {base_desc}")
-                logger.info(f"{tool_name} OPTIMIZED: {opt_desc}")
+        baseline_program_tools = get_all_tools(baseline_program)
+        optimized_program_tools = get_all_tools(optimized_program)
+        print("\n🔧 Tool Descriptions:")
+        for tool_name, optimized_program_tool in optimized_program_tools.items():
+            baseline_program_tool = baseline_program_tools[tool_name]
+            baseline_program_tool_description = baseline_program_tool.desc
+            optimized_program_tool_description = optimized_program_tool.desc
+            marker = "✨" if baseline_program_tool_description != optimized_program_tool_description else ""
+            
+            print(f"\n{marker} {tool_name}:")
+            print(f"  BASELINE:\n    {baseline_program_tool_description}")
+            print(f"  OPTIMIZED:\n    {optimized_program_tool_description}")
+            
+            logger.info(f"{tool_name} BASELINE: {baseline_program_tool_description}")
+            logger.info(f"{tool_name} OPTIMIZED: {optimized_program_tool_description}")
     else:
         # Evaluation only (no optimization)
         print("🚀 Evaluating...")
