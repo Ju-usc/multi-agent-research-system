@@ -154,28 +154,32 @@ class BrowseCompEvaluator:
         reasoning = llm_grading.reasoning
         
         usage = pred.get_lm_usage() or {}
-        total_tokens = sum(
-            s.get("prompt_tokens", 0) + s.get("completion_tokens", 0)
-            for s in usage.values()
-        )
         total_cost = self.calculate_lm_cost(usage) + pred.websearch_calls * WEBSEARCH_COST_PER_CALL_USD
+        
+        # Composite score: accuracy / (1 + cost) - rewards correct + cheap
+        composite_score = accuracy / (1 + total_cost)
         
         pred.metrics = {
             "accuracy": accuracy,
+            "composite_score": composite_score,
             "total_cost_usd": total_cost,
             "elapsed_seconds": pred.elapsed_seconds,
         }
         
         feedback = (
-            f"Accuracy: {accuracy:.0f}/1\n"
+            f"Score: {composite_score:.4f} (accuracy / (1 + cost_usd))\n"
+            f"Accuracy: {accuracy:.0f}/1 | Cost: ${total_cost:.4f}\n"
             f"Agent Answer: {pred.answer}\n"
             f"Grader Extracted Answer: {extracted_answer}\n"
             f"Ground Truth: {example.answer}\n"
             f"Grader Reasoning: {reasoning}\n"
-            f"Tokens: {total_tokens:,} | Cost: ${total_cost:.4f} | Time: {pred.elapsed_seconds:.1f}s"
+            f"---\n"
+            f"OPTIMIZATION GUIDANCE: Score = accuracy / (1 + cost). "
+            f"If correct, optimize for cost efficiency (fewer tool calls, targeted searches). "
+            f"If wrong, prioritize accuracy first."
         )
         
-        return ScoreWithFeedback(score=accuracy, feedback=feedback)
+        return ScoreWithFeedback(score=composite_score, feedback=feedback)
     
     def optimize_with_gepa(self, program: MultiAgentResearchSystem, train: list, val: list) -> MultiAgentResearchSystem:
         """Run GEPA optimization on program."""
@@ -188,6 +192,7 @@ class BrowseCompEvaluator:
             track_best_outputs=True,
             enable_tool_optimization=True,
             component_selector="all",
+            reflection_minibatch_size=len(train),  # Use full train set for reflection
         )
         
         return optimizer.compile(student=program, trainset=train, valset=val)
@@ -290,15 +295,21 @@ def main() -> None:
         start_cleanup_watchdog()
         
         results = optimized_program.detailed_results
+        baseline_score = results.val_aggregate_scores[0]
         best_score = results.val_aggregate_scores[results.best_idx]
         
+        # Derive accuracy from composite: if score > 0, accuracy = 1
+        baseline_accuracy = sum(1 for s in results.val_subscores[0] if s > 0) / len(val)
+        best_accuracy = sum(1 for s in results.val_subscores[results.best_idx] if s > 0) / len(val)
+        
         print("\n" + "=" * 50)
-        print(f"📈 Best score: {best_score:.4f}")
-        print(f"📊 Examples: {len(examples)}")
+        print(f"📈 Baseline: accuracy={baseline_accuracy:.0%}, composite={baseline_score:.4f}")
+        print(f"📈 Best:     accuracy={best_accuracy:.0%}, composite={best_score:.4f}")
+        print(f"📊 Examples: {len(examples)} (train={len(train)}, val={len(val)})")
         print(f"🧬 Candidates: {len(results.candidates)}")
         print(f"🔄 Metric calls: {results.total_metric_calls}")
         
-        logger.info(f"GEPA complete: score={best_score:.4f}, candidates={len(results.candidates)}")
+        logger.info(f"GEPA complete: baseline_acc={baseline_accuracy:.0%}, best_acc={best_accuracy:.0%}, candidates={len(results.candidates)}")
         
         # Compare baseline vs optimized prompts
         baseline_program = results.candidates[0]
@@ -348,9 +359,15 @@ def main() -> None:
     else:
         # Evaluation only (no optimization)
         print("🚀 Evaluating...")
-        result, _ = evaluator.run(program, examples)
+        result, predictions = evaluator.run(program, examples)
+        
+        # Calculate total cost
+        total_run_cost = sum(p.metrics.get("total_cost_usd", 0) for p in predictions)
+        
         print("\n" + "=" * 50)
         print(f"📈 Score: {result.score:.4f}")
+        print(f"💰 Total cost: ${total_run_cost:.2f}")
+        logger.info(f"Total run cost: ${total_run_cost:.2f}")
         print(f"📊 Examples: {len(examples)}")
 
     start_cleanup_watchdog()

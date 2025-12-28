@@ -141,8 +141,11 @@ def test_metric_correct_answer(evaluator, mock_judge):
     
     result = evaluator.metric(example, pred)
     
-    assert float(result) == 1.0
+    # Composite score = accuracy / (1 + cost) < 1.0 for correct answers with cost
+    assert float(result) < 1.0
+    assert float(result) > 0.9  # Should be close to 1 for low cost
     assert pred.metrics["accuracy"] == 1.0
+    assert pred.metrics["composite_score"] == float(result)
     assert pred.metrics["elapsed_seconds"] == 2.0
     assert "Ground Truth: 4" in result.feedback
     assert "Grader Extracted Answer: 4" in result.feedback
@@ -189,7 +192,9 @@ def test_metric_stores_feedback(evaluator, mock_judge):
     
     result = evaluator.metric(example, pred)
     
-    assert float(result) == 1.0
+    # Composite score < 1.0 due to websearch cost
+    assert float(result) < 1.0
+    assert float(result) > 0.99  # Very close to 1 with minimal cost
     assert "Accuracy: 1/1" in result.feedback
     assert "Grader Reasoning: Correct." in result.feedback
 
