@@ -26,13 +26,12 @@ All primitive tools return JSON: `{"isError": bool, "message": str}`.
 - `todo_list_write(todos)` — write the entire To-Do list, returns `{isError, message}`.
 - `filesystem_read(path)` — read artifact, returns `{isError, message}` with content in message.
 - `filesystem_tree(max_depth)` — list artifacts, returns `{isError, message}` with directory tree.
-- `subagent_run(task)` — execute subagent, returns `SubagentResult` JSON (summary, detail, artifact_path).
+- `subagent_run(task)` — execute subagent, returns `{isError, message}` with `SubagentResult` JSON in message.
 - `parallel_tool_call(calls)` — run tools concurrently, returns list of individual tool results.
 
 **Subagent tools**
-- `web_search(query, …)` — search web, returns `{isError, message}` with results in message.
+- `web_search(queries, objective, max_results)` — search web, returns `{isError, message}` with results in message.
 - `filesystem_write(path, content)` — write artifact, returns `{isError, message}`.
-- `parallel_tool_call(calls)` — run tools concurrently, returns list of individual tool results.
 
 ## Contracts (minimal)
 
@@ -40,7 +39,7 @@ All primitive tools return JSON: `{"isError": bool, "message": str}`.
 - **Subagent output:** structured JSON with `summary`.
 
   Optional `detail` and `artifact_path` appear when the subagent writes a report under `memory/`.
-- **Task shape:** `task_name`, `prompt`, `description`, `tool_budget` stay required. Add `expected_output` when you know the artifact; skip it when exploring.
+- **Task shape:** `name`, `prompt`, `description`, `tool_budget` are required. Add `expected_output` when you know the artifact; skip it when exploring.
 - **No filesystem reads by Subagents.** Artifacts are written by Subagents, read by the Lead.
 
 ## High-level loop (illustrative, not prescriptive)

@@ -7,11 +7,9 @@ dependencies = [
     "openai",
     "jupyter",
     "pydantic",
-    "brave-search-python-client",
     "nest-asyncio>=1.6.0",
     "pytest",
     "pandas",
-    "exa-py",
     "parallel-web",
 ]
 

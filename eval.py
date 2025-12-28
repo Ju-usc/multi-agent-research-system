@@ -168,14 +168,14 @@ class BrowseCompEvaluator:
         
         feedback = (
             f"Score: {composite_score:.4f} (accuracy / (1 + cost_usd))\n"
-            f"Accuracy: {accuracy:.0f}/1 | Cost: ${total_cost:.4f}\n"
+            f"Accuracy: {accuracy:.0f}/1 | Cost (Token + Websearch Cost): ${total_cost:.4f}\n"
             f"Agent Answer: {pred.answer}\n"
             f"Grader Extracted Answer: {extracted_answer}\n"
             f"Ground Truth: {example.answer}\n"
             f"Grader Reasoning: {reasoning}\n"
             f"---\n"
             f"OPTIMIZATION GUIDANCE: Score = accuracy / (1 + cost). "
-            f"If correct, optimize for cost efficiency (fewer tool calls, targeted searches). "
+            f"If correct, optimize for cost efficiency"
             f"If wrong, prioritize accuracy first."
         )
         

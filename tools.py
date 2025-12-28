@@ -117,7 +117,7 @@ class FileSystemTool:
     def write(self, path: str, content: str) -> str:
         file_path = self._safe_path(path)
         if file_path is None:
-            return str(ToolResponse(isError=True, message=f"Invalid path: {path}"))
+            return str(ToolResponse(isError=True, message=f"Invalid path: '{path}' must be relative"))
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content)
         return str(ToolResponse(isError=False, message=f"Written to {path}"))
@@ -126,7 +126,7 @@ class FileSystemTool:
     def read(self, path: str) -> str:
         file_path = self._safe_path(path)
         if file_path is None:
-            return str(ToolResponse(isError=True, message=f"Invalid path: {path}"))
+            return str(ToolResponse(isError=True, message=f"Invalid path: '{path}' must be relative"))
         if not file_path.exists():
             return str(ToolResponse(isError=True, message=f"File not found: {path}"))
         return str(ToolResponse(isError=False, message=file_path.read_text()))

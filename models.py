@@ -21,6 +21,7 @@ class SubagentTask(BaseModel):
     prompt: str = Field(description="Prompt for the subagent that will be appended to the existing instructions", exclude=True)
     description: str = Field(description="Description of the task")
     tool_budget: int = Field(default=3, ge=1, le=15, description="Max tool calls")
+    expected_output: Optional[str] = Field(default=None, description="Expected output format or artifact when known")
 
 class SubagentResult(BaseModel):
     """Subagent output."""
