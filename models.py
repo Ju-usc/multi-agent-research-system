@@ -33,8 +33,8 @@ class Todo(BaseModel):
     """Todo list item."""
     id: str
     content: str
-    status: Literal["pending", "in_progress", "completed"]
-    priority: Literal["low", "medium", "high"]
+    status: Literal["pending", "in_progress", "completed"] = "pending"
+    priority: Literal["low", "medium", "high"] = "medium"
 
 class LLMJudgeAnswer(BaseModel):
     """Answer from LLM judge on prediction correctness."""
