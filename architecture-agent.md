@@ -36,10 +36,8 @@ All primitive tools return JSON: `{"isError": bool, "message": str}`.
 ## Contracts (minimal)
 
 - **Subagent input:** `{ task }`
-- **Subagent output:** structured JSON with `summary`.
-
-  Optional `detail` and `artifact_path` appear when the subagent writes a report under `memory/`.
-- **Task shape:** `name`, `prompt`, `description`, `max_steps` are required. Add `expected_output` when you know the artifact; skip it when exploring.
+- **Subagent output:** structured JSON with `summary`, optional `artifact_path` and `confidence` (0-1).
+- **Task shape:** `name`, `instructions`, `max_steps` are required. Add `expected_output` when you know the artifact; skip it when exploring.
 - **No filesystem reads by Subagents.** Artifacts are written by Subagents, read by the Lead.
 
 ## High-level loop (illustrative, not prescriptive)

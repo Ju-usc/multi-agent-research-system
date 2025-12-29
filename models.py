@@ -17,9 +17,8 @@ class ToolResponse(BaseModel):
 class SubagentTask(BaseModel):
     """Atomic research task for a subagent."""
     name: str = Field(description="Name of the task or subagent", max_length=50)
-    # exclude=True: prompt is injected into signature.instructions, not serialized to LLM
-    prompt: str = Field(description="Prompt for the subagent that will be appended to the existing instructions", exclude=True)
-    description: str = Field(description="Description of the task")
+    # exclude=True: instructions are appended to signature.instructions, not serialized to LLM
+    instructions: str = Field(description="Task instructions appended to subagent signature", exclude=True)
     max_steps: int = Field(default=3, ge=1, le=15, description="Max steps to complete task")
     expected_output: Optional[str] = Field(default=None, description="Expected output format or artifact when known")
 
@@ -27,8 +26,8 @@ class SubagentResult(BaseModel):
     """Subagent output."""
     name: str = Field(default="", description="Name of the task or subagent")
     summary: str = Field(description="Summary of the findings")
-    detail: Optional[str] = Field(default=None, description="Detailed findings")
     artifact_path: Optional[str] = Field(default=None, description="Path to the artifact")
+    confidence: Optional[float] = Field(default=None, ge=0, le=1, description="Confidence in correctness (0-1)")
 
 class Todo(BaseModel):
     """Todo list item."""

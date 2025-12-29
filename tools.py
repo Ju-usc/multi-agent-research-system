@@ -186,7 +186,7 @@ class SubagentTool:
     def __call__(self, task: SubagentTask) -> str:
         """Execute task and return SubagentResult JSON."""
         current_instructions = ExecuteSubagentTask.instructions
-        new_instructions = current_instructions + "\n" + task.prompt
+        new_instructions = current_instructions + "\n" + task.instructions
         new_signature = ExecuteSubagentTask.with_instructions(instructions=new_instructions)
 
         subagent = dspy.ReAct(new_signature, tools=self._tools, max_iters=task.max_steps)
