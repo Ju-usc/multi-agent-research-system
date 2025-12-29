@@ -139,10 +139,9 @@ class FileSystemTool:
             if max_depth is None or len(relative.parts) <= max_depth:
                 paths.append(str(relative) + ("/" if p.is_dir() else ""))
 
-        root_label = f"{self.root}/"
         if not paths:
-            return str(ToolResponse(isError=False, message=f"{root_label} (empty)"))
-        return str(ToolResponse(isError=False, message="\n".join([root_label] + paths)))
+            return str(ToolResponse(isError=False, message="(empty)"))
+        return str(ToolResponse(isError=False, message="\n".join(paths)))
 
     def clear(self) -> None:
         if self.root.exists():
