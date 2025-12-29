@@ -1,6 +1,6 @@
 """Data models and DSPy signatures."""
 
-from typing import Optional, Literal
+from typing import Literal
 from pydantic import BaseModel, Field
 import dspy
 
@@ -20,14 +20,14 @@ class SubagentTask(BaseModel):
     # exclude=True: instructions are appended to signature.instructions, not serialized to LLM
     instructions: str = Field(description="Task instructions appended to subagent signature", exclude=True)
     max_steps: int = Field(default=3, ge=1, le=15, description="Max steps to complete task")
-    expected_output: Optional[str] = Field(default=None, description="Expected output format or artifact when known")
+    expected_output: str | None = Field(default=None, description="Expected output format or artifact when known")
 
 class SubagentResult(BaseModel):
     """Subagent output."""
     name: str = Field(default="", description="Name of the task or subagent")
     summary: str = Field(description="Summary of the findings")
-    artifact_path: Optional[str] = Field(default=None, description="Path to the artifact")
-    confidence: Optional[float] = Field(default=None, ge=0, le=1, description="Confidence in correctness (0-1)")
+    artifact_path: str | None = Field(default=None, description="Path to the artifact")
+    confidence: float | None = Field(default=None, ge=0, le=1, description="Confidence in correctness (0-1)")
 
 class Todo(BaseModel):
     """Todo list item."""

@@ -5,7 +5,7 @@ All tools are implemented as classes with __call__ methods unless class methods 
 
 import logging
 import shutil
-from typing import Any, Optional
+from typing import Any
 import json
 import dspy
 from pathlib import Path
@@ -42,7 +42,7 @@ class WebSearchTool:
         self,
         queries: list[str],
         objective: str,
-        max_results: Optional[int] = None,
+        max_results: int | None = None,
     ) -> str:
         """Search web via Parallel AI."""
         self.call_count += 1
@@ -132,17 +132,17 @@ class FileSystemTool:
         return str(ToolResponse(isError=False, message=file_path.read_text()))
 
     @trace
-    def tree(self, max_depth: Optional[int] = FILESYSTEM_TREE_MAX_DEPTH) -> str:
+    def tree(self, max_depth: int | None = FILESYSTEM_TREE_MAX_DEPTH) -> str:
         paths = []
         for p in sorted(self.root.rglob("*")):
             relative = p.relative_to(self.root)
             if max_depth is None or len(relative.parts) <= max_depth:
                 paths.append(str(relative) + ("/" if p.is_dir() else ""))
 
-        root_label = f"{str(self.root).rstrip('/')}/"
+        root_label = f"{self.root}/"
         if not paths:
             return str(ToolResponse(isError=False, message=f"{root_label} (empty)"))
-        return str(ToolResponse(isError=False, message="\n".join([root_label] + sorted(paths))))
+        return str(ToolResponse(isError=False, message="\n".join([root_label] + paths)))
 
     def clear(self) -> None:
         if self.root.exists():
@@ -160,8 +160,7 @@ class TodoListTool:
     @trace
     def write(self, todos: list[Todo]) -> str:
         self._todos = todos
-        count = len(todos)
-        return str(ToolResponse(isError=False, message=f"Updated {count} todo item{'s' if count != 1 else ''}"))
+        return str(ToolResponse(isError=False, message=f"Updated {len(todos)} todos"))
 
     @trace
     def read(self) -> str:
@@ -177,7 +176,7 @@ class TodoListTool:
 class SubagentTool:
     """Execute a single subagent research task via ReAct."""
 
-    def __init__(self, tools: list[dspy.Tool], lm: Any, adapter: Optional[Any] = None) -> None:
+    def __init__(self, tools: list[dspy.Tool], lm: Any, adapter: Any | None = None) -> None:
         self._tools = tools
         self._lm = lm
         self._adapter = adapter
@@ -196,7 +195,5 @@ class SubagentTool:
 
         result = prediction.final_result
         result.name = task.name
-        if result.artifact_path:
-            result.artifact_path = result.artifact_path.lstrip('/').removeprefix('memory/')
 
         return str(ToolResponse(isError=False, message=json.dumps(result.model_dump(), indent=2)))

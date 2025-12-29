@@ -9,7 +9,7 @@ import base64
 import hashlib
 import pandas as pd
 import dspy
-from typing import List, Optional
+from typing import List
 from pathlib import Path
 import os
 import random
@@ -20,7 +20,7 @@ class BrowseCompDataset:
     
     DATASET_URL = "https://openaipublic.blob.core.windows.net/simple-evals/browse_comp_test_set.csv"
     
-    def __init__(self, num_examples: Optional[int] = None, seed: int = 42):
+    def __init__(self, num_examples: int | None = None, seed: int = 42):
         """
         Initialize BrowseComp dataset.
         
