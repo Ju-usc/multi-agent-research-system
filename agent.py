@@ -37,7 +37,7 @@ class Agent(dspy.Module):
         lead_kwargs = lm_kwargs_for(config.lead)
         sub_kwargs = lm_kwargs_for(config.sub)
 
-        self.agent_lm = dspy.LM(
+        self.leadagent_lm = dspy.LM(
             model=config.lead,
             temperature=config.temperature,
             max_tokens=config.lead_max_tokens,
@@ -109,7 +109,7 @@ class Agent(dspy.Module):
             AgentSignature,
             tools=list(self.lead_agent_tools.values()),
         )
-        self.lead_agent.lm = self.agent_lm
+        self.lead_agent.lm = self.leadagent_lm
         self.lead_agent.adapter = ChatAdapter()
 
     @trace
