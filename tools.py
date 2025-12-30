@@ -85,8 +85,8 @@ class ParallelToolCall:
         return [str(result) for result in results]
 
     def _invoke(self, call: dict) -> Any:
-        name = call.get("tool")
-        args = call.get("args", {})
+        name = list(call)[0] if call else None
+        args = call.get(name) or {}
         tool = self.tools.get(name)
         if tool is None:
             return str(ToolResponse(isError=True, message=f"Unknown tool: {name}"))

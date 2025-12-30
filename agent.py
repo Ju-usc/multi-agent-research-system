@@ -150,6 +150,18 @@ def main() -> None:
     config = ModelConfig(lead=args.lead, sub=args.sub)
     logger.info("Models | lead=%s sub=%s", config.lead, config.sub)
 
+    # Global fallback for internal DSPy modules
+    lead_kwargs = lm_kwargs_for(config.lead)
+    dspy.configure(
+        lm=dspy.LM(
+            model=config.lead,
+            temperature=config.temperature,
+            max_tokens=config.lead_max_tokens,
+            **lead_kwargs,
+        ),
+        adapter=ChatAdapter(),
+    )
+
     agent = Agent(config=config)
     result = agent(query=args.query)
     if logger.isEnabledFor(logging.DEBUG):

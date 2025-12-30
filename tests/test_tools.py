@@ -75,9 +75,9 @@ def test_parallel_tool_call_invokes_tools(monkeypatch):
     monkeypatch.setattr(tools.dspy, "Parallel", _FakeParallel)
 
     calls = [
-        {"tool": "alpha", "args": {"value": "A"}},
-        {"tool": "beta", "args": {"value": 123}},
-        {"tool": "missing", "args": {}},
+        {"alpha": {"value": "A"}},
+        {"beta": {"value": 123}},
+        {"missing": {}},
     ]
 
     def alpha(value: str) -> str:
@@ -118,8 +118,8 @@ def test_parallel_tool_call_reports_failures(monkeypatch):
     })
 
     results = tool([
-        {"tool": "ok", "args": {}},
-        {"tool": "boom", "args": {}},
+        {"ok": {}},
+        {"boom": {}},
     ])
 
     assert results[0] == "fine"
