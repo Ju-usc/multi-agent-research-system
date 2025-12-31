@@ -14,6 +14,7 @@ from dspy.teleprompt.gepa.gepa_utils import ScoreWithFeedback
 
 from agent import Agent
 from models import BrowseCompJudge, LLMJudgeAnswer
+import config
 from config import (
     ModelConfig,
     LM_PRICING,
@@ -22,7 +23,6 @@ from config import (
     OPTIMIZER_MODEL,
     OPTIMIZER_MAX_TOKENS,
     QUERY_TIMEOUT_SECONDS,
-    lm_kwargs_for,
 )
 from dataset import BrowseCompDataset
 from utils import (
@@ -76,7 +76,7 @@ class BrowseCompEvaluator:
             model=GRADER_MODEL,
             temperature=1.0,  # Required for GPT-5 reasoning models
             max_tokens=GRADER_MAX_TOKENS,
-            **lm_kwargs_for(GRADER_MODEL),
+            api_key=config.OPENROUTER_API_KEY,
         )
         self.judge = dspy.ChainOfThought(BrowseCompJudge)
 
@@ -86,7 +86,7 @@ class BrowseCompEvaluator:
                 model=OPTIMIZER_MODEL,
                 temperature=1.0,  # Higher temp for creative prompt mutations
                 max_tokens=OPTIMIZER_MAX_TOKENS,
-                **lm_kwargs_for(OPTIMIZER_MODEL),
+                api_key=config.OPENROUTER_API_KEY,
             )
     
     def calculate_lm_cost(self, usage: dict) -> float:
@@ -258,7 +258,7 @@ def main() -> None:
                 model=config.lead,
                 temperature=config.temperature,
                 max_tokens=config.lead_max_tokens,
-                **lm_kwargs_for(config.lead),
+                api_key=config.OPENROUTER_API_KEY,
             ),
             adapter=ChatAdapter(),
         )

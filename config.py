@@ -13,7 +13,6 @@ load_dotenv(override=True)
 # ========== API KEYS ==========
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PARALLEL_API_KEY = os.getenv("PARALLEL_API_KEY")
 
 # ========== MODEL CONFIGURATION ==========
@@ -42,23 +41,6 @@ class ModelConfig:
         self.lead_max_tokens = lead_max_tokens
         self.sub_max_tokens = sub_max_tokens
         self.temperature = temperature
-
-
-def lm_kwargs_for(model_id: str) -> dict[str, str]:
-    if model_id.startswith("openrouter/"):
-        if not OPENROUTER_API_KEY:
-            raise RuntimeError("OPENROUTER_API_KEY must be set to use OpenRouter models.")
-
-        kwargs = {"api_key": OPENROUTER_API_KEY}
-        if OPENROUTER_BASE_URL:
-            kwargs["base_url"] = OPENROUTER_BASE_URL
-        return kwargs
-
-    if not OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY must be set to use OpenAI models.")
-
-    return {"api_key": OPENAI_API_KEY}
-
 
 # ========== TOOL DEFAULTS ==========
 

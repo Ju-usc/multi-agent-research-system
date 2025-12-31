@@ -4,7 +4,8 @@ from pathlib import Path
 import dspy
 from dspy.adapters.chat_adapter import ChatAdapter
 
-from config import ModelConfig, lm_kwargs_for
+import config as cfg
+from config import ModelConfig
 from tools import WebSearchTool, WebFetchTool, FileSystemTool, TodoListTool, SubagentTool, ParallelToolCall
 from tracer import trace
 from models import AgentSignature
@@ -26,21 +27,17 @@ class Agent(dspy.Module):
         self.web_search_tool = WebSearchTool()
         self.web_fetch_tool = WebFetchTool()
 
-        # Lead / subagent language models
-        lead_kwargs = lm_kwargs_for(config.lead)
-        sub_kwargs = lm_kwargs_for(config.sub)
-
         self.leadagent_lm = dspy.LM(
             model=config.lead,
             temperature=config.temperature,
             max_tokens=config.lead_max_tokens,
-            **lead_kwargs,
+            api_key=cfg.OPENROUTER_API_KEY,
         )
         self.subagent_lm = dspy.LM(
             model=config.sub,
             temperature=config.temperature,
             max_tokens=config.sub_max_tokens,
-            **sub_kwargs,
+            api_key=cfg.OPENROUTER_API_KEY,
         )
 
         subagent_tools = [
@@ -145,22 +142,20 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO)
     args = parse_args()
 
-    config = ModelConfig(lead=args.lead, sub=args.sub)
-    logger.info("Models | lead=%s sub=%s", config.lead, config.sub)
+    model_config = ModelConfig(lead=args.lead, sub=args.sub)
+    logger.info("Models | lead=%s sub=%s", model_config.lead, model_config.sub)
 
-    # Global fallback for internal DSPy modules
-    lead_kwargs = lm_kwargs_for(config.lead)
     dspy.configure(
         lm=dspy.LM(
-            model=config.lead,
-            temperature=config.temperature,
-            max_tokens=config.lead_max_tokens,
-            **lead_kwargs,
+            model=model_config.lead,
+            temperature=model_config.temperature,
+            max_tokens=model_config.lead_max_tokens,
+            api_key=cfg.OPENROUTER_API_KEY,
         ),
         adapter=ChatAdapter(),
     )
 
-    agent = Agent(config=config)
+    agent = Agent(config=model_config)
     result = agent(query=args.query)
     if logger.isEnabledFor(logging.DEBUG):
         dspy.inspect_history(n=10)
