@@ -18,10 +18,10 @@ PARALLEL_API_KEY = os.getenv("PARALLEL_API_KEY")
 # ========== MODEL CONFIGURATION ==========
 
 # Default models
-# Lead: Grok 4.1 Fast - best agentic tool calling, 2M context
-# Sub: Gemini 2.5 Flash Lite - fastest for subagent tasks (11s vs 70s gpt-oss-120b)
+# Lead: Grok 4.1 Fast - best agentic tool calling, 2M context, 30K max output
+# Sub: Grok 4.1 Fast - same model for consistency in agentic tasks
 DEFAULT_LEAD_MODEL = "openrouter/x-ai/grok-4.1-fast"
-DEFAULT_SUB_MODEL = "openrouter/google/gemini-2.5-flash-lite"
+DEFAULT_SUB_MODEL = "openrouter/x-ai/grok-4.1-fast"
 DEFAULT_LEAD_MAX_TOKENS = 40000
 DEFAULT_SUB_MAX_TOKENS = 40000
 DEFAULT_TEMPERATURE = 1.0

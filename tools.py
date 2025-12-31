@@ -101,6 +101,11 @@ class WebFetchTool:
                 full_content=False,
             )
         except Exception as error:
+            # CRITICAL: Fail fast on 402 Payment Required
+            error_str = str(error)
+            if "402" in error_str or "Payment Required" in error_str:
+                raise RuntimeError(f"WebFetchTool halted: API quota exceeded (402 Payment Required). Details: {error_str}")
+
             return str(ToolResponse(isError=True, message=f"Fetch failed: {error}"))
 
         lines: list[str] = []

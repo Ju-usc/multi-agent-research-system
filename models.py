@@ -16,7 +16,7 @@ class ToolResponse(BaseModel):
 
 class SubagentTask(BaseModel):
     """Atomic research task for a subagent."""
-    name: str = Field(description="Name of the task or subagent", max_length=50)
+    name: str = Field(description="Name of the task or subagent", max_length=100)
     # exclude=True: instructions are appended to signature.instructions, not serialized to LLM
     instructions: str = Field(description="Task instructions appended to subagent signature", exclude=True)
     max_steps: int = Field(default=3, ge=1, le=15, description="Max steps to complete task")
@@ -53,11 +53,17 @@ class ExecuteSubagentTask(dspy.Signature):
     final_result: SubagentResult = dspy.OutputField(desc="Final result of the task")
 
 class BrowseCompJudge(dspy.Signature):
-    """Judge whether the research report correctly answers the question.
-    
-    Focus only on whether the report contains the correct answer, not on quality of reasoning.
-    Allow small variations in wording or format.
-    Answer False if answer is missing, incorrect, or significantly different.
+    """Judge if the report CONTAINS the correct answer.
+
+    is_correct = True if:
+    - The correct answer (or its core identifier) appears in the report
+    - A reasonable variant of the answer appears (abbreviations, full names, with/without suffixes like Ltd/Inc)
+    - The semantic meaning matches even if wording differs
+
+    is_correct = False ONLY if:
+    - The answer is completely absent
+    - A different/wrong entity is named
+    - The report explicitly states it cannot find the answer
     """
     question: str = dspy.InputField()
     report: str = dspy.InputField()
