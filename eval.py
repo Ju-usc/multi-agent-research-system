@@ -175,7 +175,7 @@ class BrowseCompEvaluator:
             f"Grader Reasoning: {reasoning}\n"
             f"---\n"
             f"OPTIMIZATION GUIDANCE: Score = accuracy / (1 + cost). "
-            f"If correct, optimize for cost efficiency"
+            f"If correct, optimize for cost efficiency. "
             f"If wrong, prioritize accuracy first."
         )
         
@@ -299,8 +299,9 @@ def main() -> None:
         best_score = results.val_aggregate_scores[results.best_idx]
         
         # Derive accuracy from composite: if score > 0, accuracy = 1
-        baseline_accuracy = sum(1 for s in results.val_subscores[0] if s > 0) / len(val)
-        best_accuracy = sum(1 for s in results.val_subscores[results.best_idx] if s > 0) / len(val)
+        # Note: val_subscores[candidate_idx] is a dict {instance_id: score}, iterate over values
+        baseline_accuracy = sum(1 for s in results.val_subscores[0].values() if s > 0) / len(val)
+        best_accuracy = sum(1 for s in results.val_subscores[results.best_idx].values() if s > 0) / len(val)
         
         print("\n" + "=" * 50)
         print(f"📈 Baseline: accuracy={baseline_accuracy:.0%}, composite={baseline_score:.4f}")

@@ -109,6 +109,12 @@ class Block(nn.Module):
 
 ---
 
+## Skills
+
+**Before jumping into any task, check if a skill applies.** Skills provide domain expertise and systematic approaches. Their descriptions tell you when to use them — invoke proactively, don't wait to be asked.
+
+---
+
 ## Workflow
 
 1. **Research** — explore codebase, find existing patterns
