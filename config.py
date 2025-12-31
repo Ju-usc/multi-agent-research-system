@@ -20,9 +20,9 @@ PARALLEL_API_KEY = os.getenv("PARALLEL_API_KEY")
 
 # Default models
 # Lead: Grok 4.1 Fast - best agentic tool calling, 2M context
-# Sub: GPT-OSS-120B - cheaper for simple research tasks
+# Sub: Gemini 2.5 Flash Lite - fastest for subagent tasks (11s vs 70s gpt-oss-120b)
 DEFAULT_LEAD_MODEL = "openrouter/x-ai/grok-4.1-fast"
-DEFAULT_SUB_MODEL = "openrouter/openai/gpt-oss-120b"
+DEFAULT_SUB_MODEL = "openrouter/google/gemini-2.5-flash-lite"
 DEFAULT_LEAD_MAX_TOKENS = 40000
 DEFAULT_SUB_MAX_TOKENS = 40000
 DEFAULT_TEMPERATURE = 1.0
@@ -95,6 +95,7 @@ LM_PRICING = {
     "openrouter/x-ai/grok-4.1-fast": {"input": 0.20, "output": 0.50},
     "openrouter/deepseek/deepseek-v3.2": {"input": 0.24, "output": 0.38},
     "openrouter/google/gemini-3-flash-preview": {"input": 0.10, "output": 0.40},
+    "openrouter/google/gemini-2.5-flash-lite": {"input": 0.10, "output": 0.40},
     "openrouter/openai/gpt-oss-120b": {"input": 0.039, "output": 0.19},
     "openrouter/qwen/qwen3-235b-a22b-2507": {"input": 0.071, "output": 0.463},
     "openrouter/openai/gpt-5.2": {"input": 1.75, "output": 14.0, "cached_input": 0.175},
