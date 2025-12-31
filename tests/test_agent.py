@@ -44,14 +44,16 @@ def test_todo_list_round_trip():
 def test_agent_reset_workspace(tmp_path):
     """Test that reset_workspace correctly resets all agent state."""
     import agent
-    from tools import FileSystemTool, WebSearchTool, TodoListTool
+    from tools import FileSystemTool, WebSearchTool, WebFetchTool, TodoListTool
     from models import Todo
 
     # Create agent instance manually (avoid LM initialization)
     agent_instance = agent.Agent.__new__(agent.Agent)
     agent_instance.fs_tool = FileSystemTool(root=tmp_path / "initial")
     agent_instance.web_search_tool = WebSearchTool.__new__(WebSearchTool)
-    agent_instance.web_search_tool.call_count = 5
+    agent_instance.web_search_tool.total_cost_usd = 0.05
+    agent_instance.web_fetch_tool = WebFetchTool.__new__(WebFetchTool)
+    agent_instance.web_fetch_tool.total_cost_usd = 0.01
     agent_instance.todo_list_tool = TodoListTool()
     agent_instance.todo_list_tool._todos = [
         Todo(id="1", content="test", status="pending", priority="high")
@@ -63,6 +65,7 @@ def test_agent_reset_workspace(tmp_path):
 
     assert agent_instance.fs_tool.root == new_dir
     assert new_dir.exists()
-    assert agent_instance.web_search_tool.call_count == 0
+    assert agent_instance.web_search_tool.total_cost_usd == 0.0
+    assert agent_instance.web_fetch_tool.total_cost_usd == 0.0
     assert agent_instance.todo_list_tool._todos == []
 

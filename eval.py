@@ -17,7 +17,6 @@ from models import BrowseCompJudge, LLMJudgeAnswer
 from config import (
     ModelConfig,
     LM_PRICING,
-    WEBSEARCH_COST_PER_CALL_USD,
     GRADER_MODEL,
     GRADER_MAX_TOKENS,
     OPTIMIZER_MODEL,
@@ -59,7 +58,7 @@ class MultiAgentResearchSystem(dspy.Module):
             
             prediction.report = prediction.answer
             prediction.elapsed_seconds = time.perf_counter() - start_time
-            prediction.websearch_calls = agent.web_search_tool.call_count
+            prediction.tool_cost_usd = agent.web_search_tool.total_cost_usd + agent.web_fetch_tool.total_cost_usd
             
             return prediction
         finally:
@@ -71,7 +70,7 @@ class BrowseCompEvaluator:
     def __init__(self, args):
         self.args = args
         self.reflection_lm = None  # Initialized lazily if optimization requested
-
+        
         # Initialize grader LM once for all evaluations (major efficiency improvement)
         self.grader_lm = dspy.LM(
             model=GRADER_MODEL,
@@ -154,7 +153,7 @@ class BrowseCompEvaluator:
         reasoning = llm_grading.reasoning
         
         usage = pred.get_lm_usage() or {}
-        total_cost = self.calculate_lm_cost(usage) + pred.websearch_calls * WEBSEARCH_COST_PER_CALL_USD
+        total_cost = self.calculate_lm_cost(usage) + pred.tool_cost_usd
         
         # Composite score: accuracy / (1 + cost) - rewards correct + cheap
         composite_score = accuracy / (1 + total_cost)
@@ -168,7 +167,7 @@ class BrowseCompEvaluator:
         
         feedback = (
             f"Score: {composite_score:.4f} (accuracy / (1 + cost_usd))\n"
-            f"Accuracy: {accuracy:.0f}/1 | Cost (Token + Websearch Cost): ${total_cost:.4f}\n"
+            f"Accuracy: {accuracy:.0f}/1 | Cost (Token + Tool): ${total_cost:.4f}\n"
             f"Agent Answer: {pred.answer}\n"
             f"Grader Extracted Answer: {extracted_answer}\n"
             f"Ground Truth: {example.answer}\n"
@@ -310,7 +309,8 @@ def main() -> None:
         print(f"🧬 Candidates: {len(results.candidates)}")
         print(f"🔄 Metric calls: {results.total_metric_calls}")
         
-        logger.info(f"GEPA complete: baseline_acc={baseline_accuracy:.0%}, best_acc={best_accuracy:.0%}, candidates={len(results.candidates)}")
+        print(f"💰 Total cost: ${evaluator.total_cost_accumulated:.2f}")
+        logger.info(f"GEPA complete: baseline_acc={baseline_accuracy:.0%}, best_acc={best_accuracy:.0%}, candidates={len(results.candidates)}, cost=${evaluator.total_cost_accumulated:.2f}")
         
         # Compare baseline vs optimized prompts
         baseline_program = results.candidates[0]

@@ -5,7 +5,7 @@ import dspy
 from dspy.adapters.chat_adapter import ChatAdapter
 
 from config import ModelConfig, lm_kwargs_for
-from tools import WebSearchTool, FileSystemTool, TodoListTool, SubagentTool, ParallelToolCall
+from tools import WebSearchTool, WebFetchTool, FileSystemTool, TodoListTool, SubagentTool, ParallelToolCall
 from tracer import trace
 from models import AgentSignature
 from utils import create_model_cli_parser
@@ -16,22 +16,15 @@ class Agent(dspy.Module):
     def __init__(
         self,
         *,
-        config: ModelConfig | None = None,
-        work_dir: Path | str | None = None,
+        config: ModelConfig = ModelConfig(),
+        work_dir: Path = Path("memory"),
     ) -> None:
         super().__init__()
-        config = config or ModelConfig()
 
-        # Core tools
-        self.web_search_tool = WebSearchTool()
-
-        # Use isolated work directory or default to shared "memory"
-        if work_dir is None:
-            work_dir = Path("memory")
-        elif isinstance(work_dir, str):
-            work_dir = Path(work_dir)
         self.fs_tool = FileSystemTool(root=work_dir)
         self.todo_list_tool = TodoListTool()
+        self.web_search_tool = WebSearchTool()
+        self.web_fetch_tool = WebFetchTool()
 
         # Lead / subagent language models
         lead_kwargs = lm_kwargs_for(config.lead)
@@ -50,12 +43,16 @@ class Agent(dspy.Module):
             **sub_kwargs,
         )
 
-
         subagent_tools = [
             dspy.Tool(
                 self.web_search_tool,
                 name="web_search",
                 desc="Search the web.",
+            ),
+            dspy.Tool(
+                self.web_fetch_tool,
+                name="web_fetch",
+                desc="Fetch URL content.",
             ),
             dspy.Tool(
                 self.fs_tool.write,
@@ -125,7 +122,8 @@ class Agent(dspy.Module):
         # absolute path required for _safe_path() sandbox check
         self.fs_tool.root = work_dir.resolve()
         work_dir.mkdir(parents=True, exist_ok=True)
-        self.web_search_tool.call_count = 0
+        self.web_search_tool.total_cost_usd = 0.0
+        self.web_fetch_tool.total_cost_usd = 0.0
         self.todo_list_tool.clear()
 
 

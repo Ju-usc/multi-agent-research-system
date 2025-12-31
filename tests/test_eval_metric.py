@@ -121,7 +121,7 @@ def test_metric_correct_answer(evaluator, mock_judge):
     example = dspy.Example(problem="What is 2+2?", answer="4")
     pred = dspy.Prediction(answer="4", report="The answer is 4")
     pred.elapsed_seconds = 2.0
-    pred.websearch_calls = 1
+    pred.tool_cost_usd = 0.005
     pred.get_lm_usage = lambda: {
         "openrouter/x-ai/grok-4.1-fast": {
             "prompt_tokens": 1000,
@@ -156,7 +156,7 @@ def test_metric_incorrect_answer(evaluator, mock_judge):
     example = dspy.Example(problem="What is 2+2?", answer="4")
     pred = dspy.Prediction(answer="5", report="The answer is 5")
     pred.elapsed_seconds = 1.0
-    pred.websearch_calls = 0
+    pred.tool_cost_usd = 0.0
     pred.get_lm_usage = lambda: {}
     
     # Configure mock judge to return incorrect
@@ -179,7 +179,7 @@ def test_metric_stores_feedback(evaluator, mock_judge):
     example = dspy.Example(problem="Q", answer="A")
     pred = dspy.Prediction(answer="A", report="A")
     pred.elapsed_seconds = 1.0
-    pred.websearch_calls = 1
+    pred.tool_cost_usd = 0.005
     pred.get_lm_usage = lambda: {}
     
     mock_judge.return_value = SimpleNamespace(
@@ -204,7 +204,7 @@ def test_grade_prediction_error_handling(evaluator, mock_judge):
     example = dspy.Example(problem="Q", answer="A")
     pred = dspy.Prediction(answer="A", report="A")
     pred.elapsed_seconds = 1.0
-    pred.websearch_calls = 0
+    pred.tool_cost_usd = 0.0
     pred.get_lm_usage = lambda: {}
     
     # Configure mock judge to raise exception

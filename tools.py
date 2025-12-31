@@ -13,6 +13,8 @@ from parallel import Parallel
 from config import (
     PARALLEL_API_KEY,
     FILESYSTEM_TREE_MAX_DEPTH,
+    WEBSEARCH_COST_USD,
+    WEBFETCH_COST_USD,
 )
 from models import (
     ToolResponse,
@@ -35,7 +37,7 @@ class WebSearchTool:
         if not PARALLEL_API_KEY:
             raise RuntimeError("PARALLEL_API_KEY must be set")
         self._client: Parallel | None = None
-        self.call_count = 0
+        self.total_cost_usd = 0.0
 
     @trace
     def __call__(
@@ -45,7 +47,7 @@ class WebSearchTool:
         max_results: int | None = None,
     ) -> str:
         """Search web via Parallel AI."""
-        self.call_count += 1
+        self.total_cost_usd += WEBSEARCH_COST_USD
         
         if self._client is None:
             self._client = Parallel(api_key=PARALLEL_API_KEY)
@@ -66,6 +68,49 @@ class WebSearchTool:
             lines.append(f"{idx}. {title}\n{excerpt}\n{result.url}")
 
         return str(ToolResponse(isError=False, message="\n\n".join(lines)))
+
+class WebFetchTool:
+    """Fetch URL content via Parallel AI Extract API."""
+
+    def __init__(self) -> None:
+        if not PARALLEL_API_KEY:
+            raise RuntimeError("PARALLEL_API_KEY must be set")
+        self._client: Parallel | None = None
+        self.total_cost_usd = 0.0
+
+    @trace
+    def __call__(
+        self,
+        urls: list[str],
+        objective: str,
+    ) -> str:
+        """Fetch and extract content from URLs."""
+        if len(urls) > 5:
+            return str(ToolResponse(isError=True, message="Too many URLs. Max 5 allowed."))
+
+        self.total_cost_usd += WEBFETCH_COST_USD
+
+        if self._client is None:
+            self._client = Parallel(api_key=PARALLEL_API_KEY)
+
+        try:
+            response = self._client.beta.extract(
+                urls=urls,
+                objective=objective,
+                excerpts=True,
+                full_content=False,
+            )
+        except Exception as error:
+            return str(ToolResponse(isError=True, message=f"Fetch failed: {error}"))
+
+        lines: list[str] = []
+        for result in response.results:
+            title = result.title or "Untitled"
+            content = "\n".join(result.excerpts or [])
+            lines.append(f"# {title}\nURL: {result.url}\n\n<fetched_content>\n{content}\n</fetched_content>")
+
+        return str(ToolResponse(isError=False, message="\n\n".join(lines)))
+
 
 class ParallelToolCall:
     """Run multiple tool invocations concurrently."""

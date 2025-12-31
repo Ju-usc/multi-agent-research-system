@@ -18,10 +18,11 @@ PARALLEL_API_KEY = os.getenv("PARALLEL_API_KEY")
 
 # ========== MODEL CONFIGURATION ==========
 
-# Default models - Grok 4.1 Fast (Dec 2025)
-# Best agentic tool calling, 2M context, $0.20/M in, $0.50/M out
+# Default models
+# Lead: Grok 4.1 Fast - best agentic tool calling, 2M context
+# Sub: GPT-OSS-120B - cheaper for simple research tasks
 DEFAULT_LEAD_MODEL = "openrouter/x-ai/grok-4.1-fast"
-DEFAULT_SUB_MODEL = "openrouter/x-ai/grok-4.1-fast"
+DEFAULT_SUB_MODEL = "openrouter/openai/gpt-oss-120b"
 DEFAULT_LEAD_MAX_TOKENS = 40000
 DEFAULT_SUB_MAX_TOKENS = 40000
 DEFAULT_TEMPERATURE = 1.0
@@ -76,15 +77,16 @@ QUERY_TIMEOUT_SECONDS = 600  # 10 min
 # ========== EVALUATION MODELS (Fixed for experimental consistency) ==========
 # These models are used for evaluation/optimization across all experiments
 # to eliminate judge/optimizer variance as a confounding variable.
-GRADER_MODEL = "openrouter/google/gemini-3-flash-preview"  # Judges answer correctness
+GRADER_MODEL = "openrouter/openai/gpt-5.2"  # Judges answer correctness
 GRADER_MAX_TOKENS = 40000  # Large budget for reasoning chains
 
-OPTIMIZER_MODEL = "openrouter/google/gemini-3-flash-preview"  # GEPA prompt optimization
+OPTIMIZER_MODEL = "openrouter/openai/gpt-5.2"  # GEPA prompt optimization
 OPTIMIZER_MAX_TOKENS = 40000  # Large budget for prompt refinement
 
 # ========== COST CONFIGURATION ==========
 
-WEBSEARCH_COST_PER_CALL_USD = float(os.getenv("WEBSEARCH_COST_PER_CALL_USD", "0.005"))
+WEBSEARCH_COST_USD = 0.005
+WEBFETCH_COST_USD = 0.001
 
 # Model pricing per 1M tokens (for cost tracking in eval.py)
 # Add your model here if using --lead/--sub with a custom model
@@ -95,4 +97,5 @@ LM_PRICING = {
     "openrouter/google/gemini-3-flash-preview": {"input": 0.10, "output": 0.40},
     "openrouter/openai/gpt-oss-120b": {"input": 0.039, "output": 0.19},
     "openrouter/qwen/qwen3-235b-a22b-2507": {"input": 0.071, "output": 0.463},
+    "openrouter/openai/gpt-5.2": {"input": 1.75, "output": 14.0, "cached_input": 0.175},
 }
