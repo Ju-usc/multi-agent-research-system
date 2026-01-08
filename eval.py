@@ -185,7 +185,7 @@ class BrowseCompEvaluator:
         optimizer = GEPA(
             metric=self.metric,
             reflection_lm=self.reflection_lm,
-            max_metric_calls=self.args.max_metric_calls,
+            max_full_evals=self.args.max_full_evals,
             num_threads=self.args.num_threads,
             track_stats=True,
             track_best_outputs=True,
@@ -234,7 +234,7 @@ def _parse_args():
     parser.add_argument("--num-examples", type=int, default=8, help="Number of dataset examples (split 50/50 train/val)")
     parser.add_argument("--num-threads", type=int, default=5, help="Parallel evaluation threads")
     parser.add_argument("--optimize", action="store_true", help="Run GEPA optimization")
-    parser.add_argument("--max-metric-calls", type=int, default=15, help="Max metric calls for GEPA")
+    parser.add_argument("--max-full-evals", type=int, default=4, help="Max full evaluation passes for GEPA (~iterations)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for dataset sampling")
     return parser.parse_args()
 
@@ -280,7 +280,7 @@ def main() -> None:
         train, val = dataset.split(train_size=0.5)
         
         logger.info("GEPA optimization starting")
-        print(f"\n🧬 GEPA Optimization (max_metric_calls={args.max_metric_calls})")
+        print(f"\n🧬 GEPA Optimization (max_full_evals={args.max_full_evals})")
         print(f"🤖 Reflection model: {OPTIMIZER_MODEL}")
         print(f"📊 Train: {len(train)}, Val: {len(val)}")
         
