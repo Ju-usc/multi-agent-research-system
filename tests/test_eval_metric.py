@@ -80,7 +80,6 @@ def test_calculate_lm_cost_with_caching(evaluator):
 
 def test_calculate_lm_cost_unknown_model(evaluator):
     """Test LM cost calculation fails fast on unknown models."""
-    import pytest
     usage = {
         "unknown-model": {
             "prompt_tokens": 1000,

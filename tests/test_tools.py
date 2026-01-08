@@ -97,14 +97,51 @@ def test_parallel_tool_call_invokes_tools(monkeypatch):
     assert _FakeParallel.last_num_threads == 4
 
 
-def test_parallel_tool_call_unknown_tool_raises(monkeypatch):
-    """Unknown tool raises KeyError (fail fast - bug upstream)."""
+def test_parallel_tool_call_unknown_tool_returns_error(monkeypatch):
+    """Unknown tool returns error response (LLM can self-correct)."""
     monkeypatch.setattr(tools.dspy, "Parallel", _FakeParallel)
 
     tool = tools.ParallelToolCall({"alpha": lambda: "ok"})
+    results = tool([{"missing": {}}])
 
-    with pytest.raises(KeyError):
-        tool([{"missing": {}}])
+    result = json.loads(results[0])
+    assert result["isError"] is True
+    assert "missing" in result["message"]
+
+
+def test_parallel_tool_call_empty_dict_returns_error(monkeypatch):
+    """Empty call dict returns error response."""
+    monkeypatch.setattr(tools.dspy, "Parallel", _FakeParallel)
+
+    tool = tools.ParallelToolCall({"alpha": lambda: "ok"})
+    results = tool([{}])
+
+    result = json.loads(results[0])
+    assert result["isError"] is True
+
+
+def test_parallel_tool_call_no_args_tool_works(monkeypatch):
+    """Tool with no args works when called with empty args dict."""
+    monkeypatch.setattr(tools.dspy, "Parallel", _FakeParallel)
+
+    tool = tools.ParallelToolCall({"no_args": lambda: "success"})
+    results = tool([{"no_args": {}}])
+
+    assert results[0] == "success"
+
+
+def test_parallel_tool_call_wrong_args_returns_error(monkeypatch):
+    """Tool called with wrong args returns error response."""
+    monkeypatch.setattr(tools.dspy, "Parallel", _FakeParallel)
+
+    def needs_arg(required: str) -> str:
+        return f"got: {required}"
+
+    tool = tools.ParallelToolCall({"needs_arg": needs_arg})
+    results = tool([{"needs_arg": {"wrong_param": "value"}}])
+
+    result = json.loads(results[0])
+    assert result["isError"] is True
 
 
 def test_parallel_tool_call_reports_failures(monkeypatch):

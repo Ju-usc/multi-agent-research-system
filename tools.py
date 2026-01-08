@@ -129,15 +129,14 @@ class ParallelToolCall:
         return [str(result) for result in results]
 
     def _invoke(self, call: dict) -> Any:
-        name = list(call.keys())[0]
-        args = call[name]
-        tool = self.tools[name]
-
         try:
+            name = list(call.keys())[0]
+            args = call[name]
+            tool = self.tools[name]
             return tool(**args)
         except Exception as error:
-            logger.exception("Tool %s failed", name)
-            return str(ToolResponse(isError=True, message=f"Tool '{name}' failed: {error}"))
+            logger.exception("Tool call failed: %s", call)
+            return str(ToolResponse(isError=True, message=f"Tool call failed: {error}"))
 
 
 # ---------- FileSystem ----------
