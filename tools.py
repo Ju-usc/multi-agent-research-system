@@ -10,12 +10,7 @@ import json
 import dspy
 from pathlib import Path
 from parallel import Parallel
-from config import (
-    PARALLEL_API_KEY,
-    FILESYSTEM_TREE_MAX_DEPTH,
-    WEBSEARCH_COST_USD,
-    WEBFETCH_COST_USD,
-)
+from config import PARALLEL_API_KEY
 from models import (
     ToolResponse,
     Todo,
@@ -33,6 +28,8 @@ logger = logging.getLogger(__name__)
 class WebSearchTool:
     """Web search via Parallel AI."""
 
+    COST_USD = 0.005
+
     def __init__(self) -> None:
         if not PARALLEL_API_KEY:
             raise RuntimeError("PARALLEL_API_KEY must be set")
@@ -47,7 +44,7 @@ class WebSearchTool:
         max_results: int | None = None,
     ) -> str:
         """Search web via Parallel AI."""
-        self.total_cost_usd += WEBSEARCH_COST_USD
+        self.total_cost_usd += self.COST_USD
         
         if self._client is None:
             self._client = Parallel(api_key=PARALLEL_API_KEY)
@@ -72,6 +69,8 @@ class WebSearchTool:
 class WebFetchTool:
     """Fetch URL content via Parallel AI Extract API."""
 
+    COST_USD = 0.001
+
     def __init__(self) -> None:
         if not PARALLEL_API_KEY:
             raise RuntimeError("PARALLEL_API_KEY must be set")
@@ -88,7 +87,7 @@ class WebFetchTool:
         if len(urls) > 5:
             return str(ToolResponse(isError=True, message="Too many URLs. Max 5 allowed."))
 
-        self.total_cost_usd += WEBFETCH_COST_USD
+        self.total_cost_usd += self.COST_USD
 
         if self._client is None:
             self._client = Parallel(api_key=PARALLEL_API_KEY)
@@ -146,6 +145,8 @@ class ParallelToolCall:
 class FileSystemTool:
     """Sandboxed file system for research artifacts."""
 
+    DEFAULT_TREE_DEPTH = 3
+
     def __init__(self, root: Path | str = "memory"):
         self.root = Path(root).resolve() if isinstance(root, str) else root.resolve()
         self.root.mkdir(parents=True, exist_ok=True)
@@ -175,7 +176,9 @@ class FileSystemTool:
         return str(ToolResponse(isError=False, message=file_path.read_text()))
 
     @trace
-    def tree(self, max_depth: int | None = FILESYSTEM_TREE_MAX_DEPTH) -> str:
+    def tree(self, max_depth: int | None = None) -> str:
+        if max_depth is None:
+            max_depth = self.DEFAULT_TREE_DEPTH
         paths = []
         for p in sorted(self.root.rglob("*")):
             relative = p.relative_to(self.root)

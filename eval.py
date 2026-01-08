@@ -21,7 +21,6 @@ from config import (
     GRADER_MAX_TOKENS,
     OPTIMIZER_MODEL,
     OPTIMIZER_MAX_TOKENS,
-    QUERY_TIMEOUT_SECONDS,
     OPENROUTER_API_KEY,
 )
 from dataset import BrowseCompDataset
@@ -66,6 +65,8 @@ class MultiAgentResearchSystem(dspy.Module):
 
 class BrowseCompEvaluator:
     """Encapsulates BrowseComp evaluation with proper state management."""
+
+    QUERY_TIMEOUT_SECONDS = 600  # 10 min, matches OpenAI Deep Research
     
     def __init__(self, args):
         self.args = args
@@ -117,11 +118,11 @@ class BrowseCompEvaluator:
     def grade_prediction(self, example: dspy.Example, pred: dspy.Prediction) -> LLMJudgeAnswer:
         """Grade prediction using grader LM."""
         # Skip grader for timeouts
-        if pred.elapsed_seconds > QUERY_TIMEOUT_SECONDS:
+        if pred.elapsed_seconds > self.QUERY_TIMEOUT_SECONDS:
             return LLMJudgeAnswer(
                 is_correct=False,
                 extracted_answer="TIMEOUT - NOT GRADED",
-                reasoning=f"Exceeded {QUERY_TIMEOUT_SECONDS}s limit ({int(pred.elapsed_seconds)}s). Agent's answer: {pred.answer}"
+                reasoning=f"Exceeded {self.QUERY_TIMEOUT_SECONDS}s limit ({int(pred.elapsed_seconds)}s). Agent's answer: {pred.answer}"
             )
         
         try:
