@@ -41,20 +41,6 @@ class ModelConfig:
         self.sub_max_tokens = sub_max_tokens
         self.temperature = temperature
 
-# ========== TOOL DEFAULTS ==========
-
-# Filesystem tree display
-FILESYSTEM_TREE_MAX_DEPTH = 3
-
-# Workspace isolation
-WORKSPACE_UUID_LENGTH = 8  # Characters from UUID for directory naming
-
-# Cleanup watchdog
-CLEANUP_WATCHDOG_TIMEOUT_SECONDS = 30  # Force exit if DSPy/LiteLLM cleanup hangs
-
-# Query timeout (matches OpenAI Deep Research)
-QUERY_TIMEOUT_SECONDS = 600  # 10 min
-
 # ========== EVALUATION MODELS (Fixed for experimental consistency) ==========
 # These models are used for evaluation/optimization across all experiments
 # to eliminate judge/optimizer variance as a confounding variable.
@@ -65,9 +51,6 @@ OPTIMIZER_MODEL = "openrouter/openai/gpt-5.2"  # GEPA prompt optimization
 OPTIMIZER_MAX_TOKENS = 40000  # Large budget for prompt refinement
 
 # ========== COST CONFIGURATION ==========
-
-WEBSEARCH_COST_USD = 0.005
-WEBFETCH_COST_USD = 0.001
 
 # Model pricing per 1M tokens (for cost tracking in eval.py)
 # Add your model here if using --lead/--sub with a custom model

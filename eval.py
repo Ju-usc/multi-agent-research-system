@@ -21,7 +21,6 @@ from config import (
     GRADER_MAX_TOKENS,
     OPTIMIZER_MODEL,
     OPTIMIZER_MAX_TOKENS,
-    QUERY_TIMEOUT_SECONDS,
     OPENROUTER_API_KEY,
 )
 from dataset import BrowseCompDataset
@@ -66,6 +65,8 @@ class MultiAgentResearchSystem(dspy.Module):
 
 class BrowseCompEvaluator:
     """Encapsulates BrowseComp evaluation with proper state management."""
+
+    QUERY_TIMEOUT_SECONDS = 600  # 10 min, matches OpenAI Deep Research
     
     def __init__(self, args):
         self.args = args
@@ -98,21 +99,17 @@ class BrowseCompEvaluator:
         total_cost = 0.0
         
         for model_name, stats in usage.items():
-            pricing = LM_PRICING.get(model_name, {})
-            if not pricing:
-                logger.warning(f"No pricing configured for model: {model_name}")
-                continue
+            pricing = LM_PRICING[model_name]
             
-            prompt_tokens = stats.get("prompt_tokens", 0)
-            completion_tokens = stats.get("completion_tokens", 0)
+            prompt_tokens = stats["prompt_tokens"]
+            completion_tokens = stats["completion_tokens"]
             prompt_details = stats.get("prompt_tokens_details") or {}
             cached_tokens = prompt_details.get("cached_tokens", 0)
             non_cached_input = prompt_tokens - cached_tokens
             
-            # Pricing is per 1M tokens, so divide by 1,000,000
-            input_cost = (non_cached_input / 1_000_000) * pricing.get("input", 0.0)
-            cached_cost = (cached_tokens / 1_000_000) * pricing.get("cached_input", pricing.get("input", 0.0))
-            output_cost = (completion_tokens / 1_000_000) * pricing.get("output", 0.0)
+            input_cost = (non_cached_input / 1_000_000) * pricing["input"]
+            cached_cost = (cached_tokens / 1_000_000) * pricing.get("cached_input", pricing["input"])
+            output_cost = (completion_tokens / 1_000_000) * pricing["output"]
             
             total_cost += input_cost + cached_cost + output_cost
         
@@ -121,11 +118,11 @@ class BrowseCompEvaluator:
     def grade_prediction(self, example: dspy.Example, pred: dspy.Prediction) -> LLMJudgeAnswer:
         """Grade prediction using grader LM."""
         # Skip grader for timeouts
-        if pred.elapsed_seconds > QUERY_TIMEOUT_SECONDS:
+        if pred.elapsed_seconds > self.QUERY_TIMEOUT_SECONDS:
             return LLMJudgeAnswer(
                 is_correct=False,
                 extracted_answer="TIMEOUT - NOT GRADED",
-                reasoning=f"Exceeded {QUERY_TIMEOUT_SECONDS}s limit ({int(pred.elapsed_seconds)}s). Agent's answer: {pred.answer}"
+                reasoning=f"Exceeded {self.QUERY_TIMEOUT_SECONDS}s limit ({int(pred.elapsed_seconds)}s). Agent's answer: {pred.answer}"
             )
         
         try:
