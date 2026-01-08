@@ -79,7 +79,8 @@ def test_calculate_lm_cost_with_caching(evaluator):
 
 
 def test_calculate_lm_cost_unknown_model(evaluator):
-    """Test LM cost calculation gracefully handles unknown models."""
+    """Test LM cost calculation fails fast on unknown models."""
+    import pytest
     usage = {
         "unknown-model": {
             "prompt_tokens": 1000,
@@ -87,10 +88,9 @@ def test_calculate_lm_cost_unknown_model(evaluator):
         }
     }
     
-    cost = evaluator.calculate_lm_cost(usage)
-    
-    # Unknown model should log warning and return 0 cost
-    assert cost == 0.0
+    # Unknown model should raise KeyError (fail fast - add model to config)
+    with pytest.raises(KeyError):
+        evaluator.calculate_lm_cost(usage)
 
 
 def test_calculate_lm_cost_multiple_models(evaluator):

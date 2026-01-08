@@ -77,7 +77,6 @@ def test_parallel_tool_call_invokes_tools(monkeypatch):
     calls = [
         {"alpha": {"value": "A"}},
         {"beta": {"value": 123}},
-        {"missing": {}},
     ]
 
     def alpha(value: str) -> str:
@@ -93,14 +92,19 @@ def test_parallel_tool_call_invokes_tools(monkeypatch):
 
     results = tool(calls)
 
-    # alpha and beta return plain strings (tools return their own format)
     assert results[0] == "alpha:A"
     assert results[1] == "beta:123"
-    # Missing tool returns JSON error
-    missing_result = json.loads(results[2])
-    assert missing_result["isError"] is True
-    assert "Unknown tool: missing" in missing_result["message"]
     assert _FakeParallel.last_num_threads == 4
+
+
+def test_parallel_tool_call_unknown_tool_raises(monkeypatch):
+    """Unknown tool raises KeyError (fail fast - bug upstream)."""
+    monkeypatch.setattr(tools.dspy, "Parallel", _FakeParallel)
+
+    tool = tools.ParallelToolCall({"alpha": lambda: "ok"})
+
+    with pytest.raises(KeyError):
+        tool([{"missing": {}}])
 
 
 def test_parallel_tool_call_reports_failures(monkeypatch):
