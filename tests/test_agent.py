@@ -3,7 +3,7 @@
 from types import SimpleNamespace
 
 
-def test_agent_forward_invokes_lead_agent():
+def test_agent_forward_invokes_lead_agent(tmp_path):
     import agent
 
     calls: list[dict] = []
@@ -13,8 +13,14 @@ def test_agent_forward_invokes_lead_agent():
             calls.append(kwargs)
             return SimpleNamespace(answer="stubbed")
 
+    class StubLM:
+        model = "stub-model"
+
     agent_instance = agent.Agent.__new__(agent.Agent)
     agent_instance.lead_agent = StubLead()
+    agent_instance.leadagent_lm = StubLM()
+    agent_instance.subagent_lm = StubLM()
+    agent_instance.log_dir = str(tmp_path)
 
     result = agent.Agent.forward(agent_instance, query="quick check")
 

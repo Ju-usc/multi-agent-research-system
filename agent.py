@@ -20,8 +20,10 @@ class Agent(dspy.Module):
         *,
         config: ModelConfig = ModelConfig(),
         work_dir: Path = Path("memory"),
+        log_dir: str,
     ) -> None:
         super().__init__()
+        self.log_dir = log_dir
 
         self.fs_tool = FileSystemTool(root=work_dir)
         self.todo_list_tool = TodoListTool()
@@ -108,19 +110,13 @@ class Agent(dspy.Module):
         self.lead_agent.adapter = ChatAdapter()
 
     @trace
-    def forward(self, query: str, log_dir: str | None = None) -> dspy.Prediction:
-        if log_dir:
-            agent_logger = AgentLogger(
-                log_dir=log_dir,
-                lead_model=self.leadagent_lm.model,
-                sub_model=self.subagent_lm.model,
-                query=query)
-        else:
-            agent_logger = None
-
-        if not agent_logger:
-            return self.lead_agent(query=query)
-
+    def forward(self, query: str) -> dspy.Prediction:
+        agent_logger = AgentLogger(
+            log_dir=self.log_dir,
+            lead_model=self.leadagent_lm.model,
+            sub_model=self.subagent_lm.model,
+            query=query,
+        )
         with dspy.context(
             callbacks=[AgentLoggingCallback(agent_logger)],
             agent_type="lead",
@@ -150,7 +146,7 @@ def parse_args():
             "Research query to run through the agent.",
         ),
     )
-    parser.add_argument("--log-dir", default=None, help="Directory for agent execution logs (JSONL).")
+    parser.add_argument("--log-dir", default="logs", help="Directory for agent execution logs (JSONL).")
     args = parser.parse_args()
     if args.query is None:
         parser.error("--query is required")
@@ -174,8 +170,8 @@ def main() -> None:
         adapter=ChatAdapter(),
     )
 
-    agent = Agent(config=model_config)
-    result = agent(query=args.query, log_dir=args.log_dir)
+    agent = Agent(config=model_config, log_dir=args.log_dir)
+    result = agent(query=args.query)
     if logger.isEnabledFor(logging.DEBUG):
         dspy.inspect_history(n=10)
 
