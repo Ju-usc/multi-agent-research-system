@@ -51,9 +51,9 @@ class MultiAgentResearchSystem(dspy.Module):
     Uses deepcopy() for thread-safe parallel evaluation.
     """
 
-    def __init__(self, config: ModelConfig | None = None):
+    def __init__(self, config: ModelConfig | None = None, *, log_dir: str = "logs/eval"):
         super().__init__()
-        self.agent = Agent(config=config, work_dir="memory_eval/default")
+        self.agent = Agent(config=config, work_dir="memory_eval/default", log_dir=log_dir)
 
     def forward(self, problem: str) -> dspy.Prediction:
         work_dir = create_isolated_workspace()
@@ -244,6 +244,7 @@ def _parse_args():
     parser.add_argument("--optimize", action="store_true", help="Run GEPA optimization")
     parser.add_argument("--max-full-evals", type=int, default=4, help="Max full evaluation passes for GEPA (~iterations)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for dataset sampling")
+    parser.add_argument("--log-dir", default="logs/eval", help="Directory for agent execution logs (JSONL).")
     return parser.parse_args()
 
 
@@ -282,7 +283,7 @@ def main() -> None:
     print(f"📚 Loaded {len(examples)} examples")
 
     # Create agent program
-    program = MultiAgentResearchSystem(config=config)
+    program = MultiAgentResearchSystem(config=config, log_dir=args.log_dir)
 
     if args.optimize:
         train, val = dataset.split(train_size=0.5)
