@@ -6,6 +6,7 @@ from dspy.adapters.chat_adapter import ChatAdapter
 
 import config as cfg
 from config import ModelConfig
+from logger import AgentLogger, AgentLoggingCallback
 from tools import WebSearchTool, WebFetchTool, FileSystemTool, TodoListTool, SubagentTool, ParallelToolCall
 from tracer import trace
 from models import AgentSignature
@@ -107,8 +108,25 @@ class Agent(dspy.Module):
         self.lead_agent.adapter = ChatAdapter()
 
     @trace
-    def forward(self, query: str) -> dspy.Prediction:
-        return self.lead_agent(query=query)
+    def forward(self, query: str, log_dir: str | None = None) -> dspy.Prediction:
+        if log_dir:
+            agent_logger = AgentLogger(
+                log_dir=log_dir,
+                lead_model=self.leadagent_lm.model,
+                sub_model=self.subagent_lm.model,
+                query=query)
+        else:
+            agent_logger = None
+
+        if not agent_logger:
+            return self.lead_agent(query=query)
+
+        with dspy.context(
+            callbacks=[AgentLoggingCallback(agent_logger)],
+            agent_type="lead",
+            agent_name="lead_agent",
+        ):
+            return self.lead_agent(query=query)
 
     def reset_workspace(self, work_dir: Path) -> None:
         """Reset agent state for a new evaluation run.
@@ -132,6 +150,7 @@ def parse_args():
             "Research query to run through the agent.",
         ),
     )
+    parser.add_argument("--log-dir", default=None, help="Directory for agent execution logs (JSONL).")
     args = parser.parse_args()
     if args.query is None:
         parser.error("--query is required")
@@ -156,7 +175,7 @@ def main() -> None:
     )
 
     agent = Agent(config=model_config)
-    result = agent(query=args.query)
+    result = agent(query=args.query, log_dir=args.log_dir)
     if logger.isEnabledFor(logging.DEBUG):
         dspy.inspect_history(n=10)
 
