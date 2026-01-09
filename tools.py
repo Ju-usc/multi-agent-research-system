@@ -5,17 +5,17 @@ All tools are implemented as classes with __call__ methods unless class methods 
 
 import logging
 import shutil
-from typing import Any
-import json
-import dspy
 from pathlib import Path
+from typing import Any
+
+import dspy
 from parallel import Parallel
+
 from config import PARALLEL_API_KEY
 from models import (
-    ToolResponse,
-    Todo,
-    SubagentTask,
     ExecuteSubagentTask,
+    SubagentTask,
+    Todo,
 )
 from tracer import trace
 
@@ -56,15 +56,12 @@ class WebSearchTool:
                 max_results=max_results,
             )
         except Exception as error:
-            return str(ToolResponse(isError=True, message=f"Search failed: {error}"))
+            return f"Error: Search failed: {error}"
 
-        lines: list[str] = []
-        for idx, result in enumerate(response.results, 1):
-            title = result.title or "Untitled"
-            excerpt = "\n".join(result.excerpts or [])
-            lines.append(f"{idx}. {title}\n{excerpt}\n{result.url}")
-
-        return str(ToolResponse(isError=False, message="\n\n".join(lines)))
+        return [
+            {"title": r.title or "Untitled", "excerpt": "\n".join(r.excerpts or []), "url": r.url}
+            for r in response.results
+        ]
 
 class WebFetchTool:
     """Fetch URL content via Parallel AI Extract API."""
@@ -85,7 +82,7 @@ class WebFetchTool:
     ) -> str:
         """Fetch and extract content from URLs."""
         if len(urls) > 5:
-            return str(ToolResponse(isError=True, message="Too many URLs. Max 5 allowed."))
+            return "Error: Too many URLs. Max 5 allowed."
 
         self.total_cost_usd += self.COST_USD
 
@@ -100,15 +97,12 @@ class WebFetchTool:
                 full_content=False,
             )
         except Exception as error:
-            return str(ToolResponse(isError=True, message=f"Fetch failed: {error}"))
+            return f"Error: Fetch failed: {error}"
 
-        lines: list[str] = []
-        for result in response.results:
-            title = result.title or "Untitled"
-            content = "\n".join(result.excerpts or [])
-            lines.append(f"# {title}\nURL: {result.url}\n\n<fetched_content>\n{content}\n</fetched_content>")
-
-        return str(ToolResponse(isError=False, message="\n\n".join(lines)))
+        return [
+            {"title": r.title or "Untitled", "url": r.url, "content": "\n".join(r.excerpts or [])}
+            for r in response.results
+        ]
 
 
 class ParallelToolCall:
@@ -137,8 +131,7 @@ class ParallelToolCall:
             return tool(**args)
         except Exception as error:
             logger.exception("Tool call failed: %s", call)
-            msg = f"Tool '{name}' failed: {error}" if name else f"Tool call failed: {error}"
-            return str(ToolResponse(isError=True, message=msg))
+            return f"Error: Tool '{name}' failed: {error}" if name else f"Error: Tool call failed: {error}"
 
 
 # ---------- FileSystem ----------
@@ -162,19 +155,19 @@ class FileSystemTool:
     def write(self, path: str, content: str) -> str:
         file_path = self._safe_path(path)
         if file_path is None:
-            return str(ToolResponse(isError=True, message=f"Invalid path: '{path}' must be relative"))
+            return f"Error: Invalid path: '{path}' must be relative"
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content)
-        return str(ToolResponse(isError=False, message=f"Written to {path}"))
+        return f"Written to {path}"
 
     @trace
     def read(self, path: str) -> str:
         file_path = self._safe_path(path)
         if file_path is None:
-            return str(ToolResponse(isError=True, message=f"Invalid path: '{path}' must be relative"))
+            return f"Error: Invalid path: '{path}' must be relative"
         if not file_path.exists():
-            return str(ToolResponse(isError=True, message=f"File not found: {path}"))
-        return str(ToolResponse(isError=False, message=file_path.read_text()))
+            return f"Error: File not found: {path}"
+        return file_path.read_text()
 
     @trace
     def tree(self, max_depth: int | None = None) -> str:
@@ -186,9 +179,7 @@ class FileSystemTool:
             if max_depth is None or len(relative.parts) <= max_depth:
                 paths.append(str(relative) + ("/" if p.is_dir() else ""))
 
-        if not paths:
-            return str(ToolResponse(isError=False, message="(empty)"))
-        return str(ToolResponse(isError=False, message="\n".join(paths)))
+        return "\n".join(paths) or "(empty)"
 
     def clear(self) -> None:
         if self.root.exists():
@@ -206,12 +197,11 @@ class TodoListTool:
     @trace
     def write(self, todos: list[Todo]) -> str:
         self._todos = todos
-        return str(ToolResponse(isError=False, message=f"Updated {len(todos)} todos"))
+        return f"Updated {len(todos)} todos"
 
     @trace
-    def read(self) -> str:
-        todos_json = json.dumps([t.model_dump() for t in self._todos], indent=2)
-        return str(ToolResponse(isError=False, message=f"Todos ({len(self._todos)} items):\n{todos_json}"))
+    def read(self) -> list[dict]:
+        return [t.model_dump() for t in self._todos]
 
     def clear(self) -> None:
         self._todos = []
@@ -236,10 +226,14 @@ class SubagentTool:
 
         subagent = dspy.ReAct(new_signature, tools=self._tools, max_iters=task.max_steps)
 
-        with dspy.context(lm=self._lm, adapter=self._adapter):
+        with dspy.context(
+            lm=self._lm,
+            adapter=self._adapter,
+            agent_type="subagent",
+            agent_name=task.name,
+        ):
             prediction = subagent(task=task)
 
         result = prediction.final_result
         result.name = task.name
-
-        return str(ToolResponse(isError=False, message=json.dumps(result.model_dump(), indent=2)))
+        return result.model_dump()

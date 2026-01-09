@@ -1,5 +1,4 @@
 from types import SimpleNamespace
-import json
 import pytest
 import tools
 
@@ -45,11 +44,12 @@ def mock_parallel(monkeypatch):
 
 def test_web_search_tool(mock_parallel):
     tool = tools.WebSearchTool()
-    output = tool(queries=["test query"], objective="Find test results")
-    result = json.loads(output)
+    result = tool(queries=["test query"], objective="Find test results")
 
-    assert result["isError"] is False
-    assert "Result One" in result["message"]
+    assert isinstance(result, list)
+    assert len(result) == 2
+    assert result[0]["title"] == "Result One"
+    assert result[0]["url"] == "https://one.example"
     assert mock_parallel.beta.last_kwargs["objective"] == "Find test results"
     assert mock_parallel.beta.last_kwargs["search_queries"] == ["test query"]
 
@@ -104,9 +104,8 @@ def test_parallel_tool_call_unknown_tool_returns_error(monkeypatch):
     tool = tools.ParallelToolCall({"alpha": lambda: "ok"})
     results = tool([{"missing": {}}])
 
-    result = json.loads(results[0])
-    assert result["isError"] is True
-    assert "missing" in result["message"]
+    assert results[0].startswith("Error:")
+    assert "missing" in results[0]
 
 
 def test_parallel_tool_call_empty_dict_returns_error(monkeypatch):
@@ -116,8 +115,7 @@ def test_parallel_tool_call_empty_dict_returns_error(monkeypatch):
     tool = tools.ParallelToolCall({"alpha": lambda: "ok"})
     results = tool([{}])
 
-    result = json.loads(results[0])
-    assert result["isError"] is True
+    assert results[0].startswith("Error:")
 
 
 def test_parallel_tool_call_no_args_tool_works(monkeypatch):
@@ -140,8 +138,7 @@ def test_parallel_tool_call_wrong_args_returns_error(monkeypatch):
     tool = tools.ParallelToolCall({"needs_arg": needs_arg})
     results = tool([{"needs_arg": {"wrong_param": "value"}}])
 
-    result = json.loads(results[0])
-    assert result["isError"] is True
+    assert results[0].startswith("Error:")
 
 
 def test_parallel_tool_call_reports_failures(monkeypatch):
@@ -164,39 +161,37 @@ def test_parallel_tool_call_reports_failures(monkeypatch):
     ])
 
     assert results[0] == "fine"
-    error_result = json.loads(results[1])
-    assert error_result["isError"] is True
-    assert "boom" in error_result["message"]
-    assert "kaboom" in error_result["message"]
+    assert results[1].startswith("Error:")
+    assert "boom" in results[1]
+    assert "kaboom" in results[1]
 
 
 def test_filesystem_tool_blocks_path_traversal(tmp_path):
     fs = tools.FileSystemTool(root=tmp_path / "sandbox")
-    
+
     # Valid paths work
-    result = json.loads(fs.write("valid.txt", "content"))
-    assert result["isError"] is False
-    
-    result = json.loads(fs.read("valid.txt"))
-    assert result["isError"] is False
-    assert result["message"] == "content"
-    
+    result = fs.write("valid.txt", "content")
+    assert result == "Written to valid.txt"
+
+    result = fs.read("valid.txt")
+    assert result == "content"
+
     # Path traversal blocked
-    result = json.loads(fs.write("../escape.txt", "bad"))
-    assert result["isError"] is True
-    assert "Invalid path" in result["message"]
-    
-    result = json.loads(fs.read("../escape.txt"))
-    assert result["isError"] is True
-    assert "Invalid path" in result["message"]
-    
+    result = fs.write("../escape.txt", "bad")
+    assert result.startswith("Error:")
+    assert "Invalid path" in result
+
+    result = fs.read("../escape.txt")
+    assert result.startswith("Error:")
+    assert "Invalid path" in result
+
     # Absolute paths blocked
-    result = json.loads(fs.write("/etc/passwd", "bad"))
-    assert result["isError"] is True
-    assert "Invalid path" in result["message"]
-    
+    result = fs.write("/etc/passwd", "bad")
+    assert result.startswith("Error:")
+    assert "Invalid path" in result
+
     # Nested traversal blocked
-    result = json.loads(fs.write("subdir/../../escape.txt", "bad"))
-    assert result["isError"] is True
-    assert "Invalid path" in result["message"]
+    result = fs.write("subdir/../../escape.txt", "bad")
+    assert result.startswith("Error:")
+    assert "Invalid path" in result
 

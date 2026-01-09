@@ -1,6 +1,5 @@
 """Lightweight agent-path tests to keep the branch focused on sync behaviour."""
 
-import json
 from types import SimpleNamespace
 
 
@@ -32,13 +31,13 @@ def test_todo_list_round_trip():
         Todo(id="1", content="Sketch experiment plan", status="pending", priority="high"),
     ]
 
-    write_response = json.loads(tool.write(todos))
-    assert write_response["isError"] is False
-    assert "Updated 1 todos" in write_response["message"]
+    write_response = tool.write(todos)
+    assert write_response == "Updated 1 todos"
 
-    read_response = json.loads(tool.read())
-    assert read_response["isError"] is False
-    assert "Sketch experiment plan" in read_response["message"]
+    read_response = tool.read()
+    assert isinstance(read_response, list)
+    assert len(read_response) == 1
+    assert read_response[0]["content"] == "Sketch experiment plan"
 
 
 def test_agent_reset_workspace(tmp_path):
