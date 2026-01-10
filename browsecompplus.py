@@ -85,7 +85,7 @@ class BrowseCompPlusDataset:
         return len(self._tasks)
 
 
-# ---------- LocalSearch ----------
+# ---------- Local Tools ----------
 
 
 class LocalSearchTool:
@@ -97,12 +97,17 @@ class LocalSearchTool:
         self.mcp_url = mcp_url
         self.total_cost_usd = 0.0
 
-    def __call__(self, queries: list[str]) -> list[dict[str, Any]]:
-        results = []
-        for query in queries:
-            hits = asyncio.run(self._search(query))
-            results.extend(hits)
-        return results
+    def __call__(self, queries: list[str]) -> list[dict[str, Any]] | str:
+        try:
+            results = []
+            for query in queries:
+                hits = asyncio.run(self._search(query))
+                results.extend(hits)
+            if not results:
+                return "Error: No results found."
+            return results
+        except Exception as e:
+            return f"Error: Search failed: {e}"
 
     async def _search(self, query: str) -> list[dict[str, Any]]:
         async with Client(self.mcp_url) as client:
@@ -123,10 +128,16 @@ class LocalFetchTool:
         self.mcp_url = mcp_url
         self.total_cost_usd = 0.0
 
-    def __call__(self, docids: list[str]) -> list[dict[str, Any]]:
+    def __call__(self, docids: list[str]) -> list[dict[str, Any]] | str:
         if len(docids) > 5:
             return "Error: Too many docids. Max 5 allowed."
-        return [asyncio.run(self._fetch(docid)) for docid in docids]
+        try:
+            results = [asyncio.run(self._fetch(docid)) for docid in docids]
+            if not results:
+                return "Error: No documents found."
+            return results
+        except Exception as e:
+            return f"Error: Fetch failed: {e}"
 
     async def _fetch(self, docid: str) -> dict[str, Any]:
         async with Client(self.mcp_url) as client:
