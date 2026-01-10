@@ -38,10 +38,8 @@ class WebSearchTool:
         queries: list[str],
         objective: str,
         max_results: int | None = None,
-    ) -> str:
+    ) -> list[dict[str, Any]] | str:
         """Search web via Parallel AI."""
-        self.total_cost_usd += self.COST_USD
-        
         if self._client is None:
             self._client = Parallel(api_key=PARALLEL_API_KEY)
 
@@ -54,10 +52,14 @@ class WebSearchTool:
         except Exception as error:
             return f"Error: Search failed: {error}"
 
-        return [
+        results = [
             {"title": r.title or "Untitled", "excerpt": "\n".join(r.excerpts or []), "url": r.url}
             for r in response.results
         ]
+        if not results:
+            return "Error: No results found."
+        self.total_cost_usd += self.COST_USD
+        return results
 
 class WebFetchTool:
     """Fetch URL content via Parallel AI Extract API."""
@@ -74,12 +76,10 @@ class WebFetchTool:
         self,
         urls: list[str],
         objective: str,
-    ) -> str:
+    ) -> list[dict[str, Any]] | str:
         """Fetch and extract content from URLs."""
         if len(urls) > 5:
             return "Error: Too many URLs. Max 5 allowed."
-
-        self.total_cost_usd += self.COST_USD
 
         if self._client is None:
             self._client = Parallel(api_key=PARALLEL_API_KEY)
@@ -94,10 +94,14 @@ class WebFetchTool:
         except Exception as error:
             return f"Error: Fetch failed: {error}"
 
-        return [
+        results = [
             {"title": r.title or "Untitled", "url": r.url, "content": "\n".join(r.excerpts or [])}
             for r in response.results
         ]
+        if not results:
+            return "Error: No documents found."
+        self.total_cost_usd += self.COST_USD
+        return results
 
 
 class ParallelToolCall:
