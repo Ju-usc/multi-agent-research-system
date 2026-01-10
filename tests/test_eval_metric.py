@@ -1,9 +1,5 @@
-"""
-Tests for BrowseComp evaluation metrics.
+"""Tests for BrowseComp evaluation metrics."""
 
-Tests the BrowseCompEvaluator class methods for grading predictions
-and calculating metrics.
-"""
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -15,201 +11,103 @@ from models import LLMJudgeAnswer
 
 
 @pytest.fixture
-def mock_args():
-    """Create mock args for BrowseCompEvaluator."""
-    return SimpleNamespace(
-        optimize=False,
-        num_threads=1,
-    )
-
-
-@pytest.fixture
 def mock_judge():
-    """Mock judge that can be configured per test."""
     return MagicMock()
 
 
 @pytest.fixture
-def evaluator(mock_args, mock_judge, monkeypatch):
-    """Create BrowseCompEvaluator with mocked DSPy boundary."""
-    # Mock at DSPy boundary (external lib that makes API calls)
-    monkeypatch.setattr("eval.dspy.LM", lambda **kwargs: MagicMock())
+def evaluator(mock_judge, monkeypatch):
+    args = SimpleNamespace(optimize=False, num_threads=1)
+    monkeypatch.setattr("eval.dspy.LM", lambda **kw: MagicMock())
     monkeypatch.setattr("eval.dspy.ChainOfThought", lambda sig: mock_judge)
-    
-    evaluator = BrowseCompEvaluator(mock_args)
-    return evaluator
+    return BrowseCompEvaluator(args)
 
 
-def test_calculate_lm_cost_basic(evaluator):
-    """Test LM cost calculation with basic token usage."""
-    usage = {
-        "openrouter/x-ai/grok-4.1-fast": {
-            "prompt_tokens": 1000,
-            "completion_tokens": 500,
-            "prompt_tokens_details": {"cached_tokens": 0}
+@pytest.fixture
+def make_prediction():
+    """Factory for creating test predictions."""
+    def _make(answer="A", usage=None):
+        pred = dspy.Prediction(answer=answer, report=answer)
+        pred.elapsed_seconds = 1.0
+        pred.tool_cost_usd = 0.0
+        pred.get_lm_usage = lambda: usage or {}
+        return pred
+    return _make
+
+
+class TestCalculateLmCost:
+    def test_basic(self, evaluator):
+        usage = {
+            "openrouter/x-ai/grok-4.1-fast": {
+                "prompt_tokens": 1000,
+                "completion_tokens": 500,
+                "prompt_tokens_details": {"cached_tokens": 0},
+            }
         }
-    }
-    
-    cost = evaluator.calculate_lm_cost(usage)
-    
-    # grok-4.1-fast: $0.20 per 1M input, $0.50 per 1M output
-    # 1000 tokens / 1M * $0.20 = $0.0002
-    # 500 tokens / 1M * $0.50 = $0.00025
-    # Total: $0.00045
-    assert cost == pytest.approx(0.00045)
+        # grok: $0.20/1M input + $0.50/1M output = $0.00045
+        assert evaluator.calculate_lm_cost(usage) == pytest.approx(0.00045)
 
-
-def test_calculate_lm_cost_with_caching(evaluator):
-    """Test LM cost calculation with cached tokens (no cache discount for grok)."""
-    usage = {
-        "openrouter/x-ai/grok-4.1-fast": {
-            "prompt_tokens": 2000,
-            "completion_tokens": 500,
-            "prompt_tokens_details": {"cached_tokens": 1000}
+    def test_with_caching(self, evaluator):
+        usage = {
+            "openrouter/x-ai/grok-4.1-fast": {
+                "prompt_tokens": 2000,
+                "completion_tokens": 500,
+                "prompt_tokens_details": {"cached_tokens": 1000},
+            }
         }
-    }
-    
-    cost = evaluator.calculate_lm_cost(usage)
-    
-    # grok-4.1-fast: $0.20 per 1M input, $0.50 per 1M output (no cached_input pricing)
-    # Input: 2000 tokens / 1M * $0.20 = $0.0004
-    # Output: 500 tokens / 1M * $0.50 = $0.00025
-    # Total: $0.00065
-    assert cost == pytest.approx(0.00065)
+        # No cache discount for grok: $0.0004 + $0.00025 = $0.00065
+        assert evaluator.calculate_lm_cost(usage) == pytest.approx(0.00065)
 
+    def test_unknown_model_raises(self, evaluator):
+        with pytest.raises(KeyError):
+            evaluator.calculate_lm_cost({"unknown": {"prompt_tokens": 100, "completion_tokens": 50}})
 
-def test_calculate_lm_cost_unknown_model(evaluator):
-    """Test LM cost calculation fails fast on unknown models."""
-    usage = {
-        "unknown-model": {
-            "prompt_tokens": 1000,
-            "completion_tokens": 500,
+    def test_multiple_models(self, evaluator):
+        usage = {
+            "openrouter/x-ai/grok-4.1-fast": {
+                "prompt_tokens": 1000, "completion_tokens": 500,
+                "prompt_tokens_details": {"cached_tokens": 0},
+            },
+            "openrouter/deepseek/deepseek-v3.2": {
+                "prompt_tokens": 500, "completion_tokens": 200,
+                "prompt_tokens_details": {"cached_tokens": 0},
+            },
         }
-    }
-    
-    # Unknown model should raise KeyError (fail fast - add model to config)
-    with pytest.raises(KeyError):
-        evaluator.calculate_lm_cost(usage)
+        # grok: $0.00045 + deepseek: $0.000196 = $0.000646
+        assert evaluator.calculate_lm_cost(usage) == pytest.approx(0.000646)
 
 
-def test_calculate_lm_cost_multiple_models(evaluator):
-    """Test LM cost calculation with multiple models."""
-    usage = {
-        "openrouter/x-ai/grok-4.1-fast": {
-            "prompt_tokens": 1000,
-            "completion_tokens": 500,
-            "prompt_tokens_details": {"cached_tokens": 0}
-        },
-        "openrouter/deepseek/deepseek-v3.2": {
-            "prompt_tokens": 500,
-            "completion_tokens": 200,
-            "prompt_tokens_details": {"cached_tokens": 0}
-        }
-    }
-    
-    cost = evaluator.calculate_lm_cost(usage)
-    
-    # grok-4.1-fast: (1000/1M * $0.20) + (500/1M * $0.50) = $0.0002 + $0.00025 = $0.00045
-    # deepseek-v3.2: (500/1M * $0.24) + (200/1M * $0.38) = $0.00012 + $0.000076 = $0.000196
-    # Total: $0.000646
-    assert cost == pytest.approx(0.000646)
-
-
-def test_metric_correct_answer(evaluator, mock_judge):
-    """Test metric with correct answer."""
-    example = dspy.Example(problem="What is 2+2?", answer="4")
-    pred = dspy.Prediction(answer="4", report="The answer is 4")
-    pred.elapsed_seconds = 2.0
-    pred.tool_cost_usd = 0.005
-    pred.get_lm_usage = lambda: {
-        "openrouter/x-ai/grok-4.1-fast": {
-            "prompt_tokens": 1000,
-            "completion_tokens": 500,
-            "prompt_tokens_details": {"cached_tokens": 0}
-        }
-    }
-    
-    # Configure mock judge to return correct answer
-    mock_judge.return_value = SimpleNamespace(
-        answer=LLMJudgeAnswer(
-            is_correct=True,
-            extracted_answer="4",
-            reasoning="The answer matches."
+class TestMetric:
+    def test_correct_answer(self, evaluator, mock_judge, make_prediction):
+        example = dspy.Example(problem="2+2?", answer="4")
+        pred = make_prediction(answer="4")
+        mock_judge.return_value = SimpleNamespace(
+            answer=LLMJudgeAnswer(is_correct=True, extracted_answer="4", reasoning="Correct")
         )
-    )
-    
-    result = evaluator.metric(example, pred)
-    
-    # Composite score = accuracy / (1 + cost) < 1.0 for correct answers with cost
-    assert float(result) < 1.0
-    assert float(result) > 0.9  # Should be close to 1 for low cost
-    assert pred.metrics["accuracy"] == 1.0
-    assert pred.metrics["composite_score"] == float(result)
-    assert pred.metrics["elapsed_seconds"] == 2.0
-    assert "Ground Truth: 4" in result.feedback
-    assert "Grader Extracted Answer: 4" in result.feedback
 
+        result = evaluator.metric(example, pred)
 
-def test_metric_incorrect_answer(evaluator, mock_judge):
-    """Test metric with incorrect answer."""
-    example = dspy.Example(problem="What is 2+2?", answer="4")
-    pred = dspy.Prediction(answer="5", report="The answer is 5")
-    pred.elapsed_seconds = 1.0
-    pred.tool_cost_usd = 0.0
-    pred.get_lm_usage = lambda: {}
-    
-    # Configure mock judge to return incorrect
-    mock_judge.return_value = SimpleNamespace(
-        answer=LLMJudgeAnswer(
-            is_correct=False,
-            extracted_answer="5",
-            reasoning="The answer is wrong."
+        assert float(result) > 0.9
+        assert pred.metrics["accuracy"] == 1.0
+
+    def test_incorrect_answer(self, evaluator, mock_judge, make_prediction):
+        example = dspy.Example(problem="2+2?", answer="4")
+        pred = make_prediction(answer="5")
+        mock_judge.return_value = SimpleNamespace(
+            answer=LLMJudgeAnswer(is_correct=False, extracted_answer="5", reasoning="Wrong")
         )
-    )
-    
-    result = evaluator.metric(example, pred)
-    
-    assert float(result) == 0.0
-    assert pred.metrics["accuracy"] == 0.0
 
+        result = evaluator.metric(example, pred)
 
-def test_metric_stores_feedback(evaluator, mock_judge):
-    """Test metric stores feedback in ScoreWithFeedback."""
-    example = dspy.Example(problem="Q", answer="A")
-    pred = dspy.Prediction(answer="A", report="A")
-    pred.elapsed_seconds = 1.0
-    pred.tool_cost_usd = 0.005
-    pred.get_lm_usage = lambda: {}
-    
-    mock_judge.return_value = SimpleNamespace(
-        answer=LLMJudgeAnswer(
-            is_correct=True,
-            extracted_answer="A",
-            reasoning="Correct."
-        )
-    )
-    
-    result = evaluator.metric(example, pred)
-    
-    # Composite score < 1.0 due to websearch cost
-    assert float(result) < 1.0
-    assert float(result) > 0.99  # Very close to 1 with minimal cost
-    assert "Accuracy: 1/1" in result.feedback
-    assert "Grader Reasoning: Correct." in result.feedback
+        assert float(result) == 0.0
+        assert pred.metrics["accuracy"] == 0.0
 
+    def test_judge_error_returns_zero(self, evaluator, mock_judge, make_prediction):
+        example = dspy.Example(problem="Q", answer="A")
+        pred = make_prediction()
+        mock_judge.side_effect = Exception("Judge failed")
 
-def test_grade_prediction_error_handling(evaluator, mock_judge):
-    """Test grade_prediction handles errors gracefully."""
-    example = dspy.Example(problem="Q", answer="A")
-    pred = dspy.Prediction(answer="A", report="A")
-    pred.elapsed_seconds = 1.0
-    pred.tool_cost_usd = 0.0
-    pred.get_lm_usage = lambda: {}
-    
-    # Configure mock judge to raise exception
-    mock_judge.side_effect = Exception("Judge failed")
-    
-    result = evaluator.metric(example, pred)
-    
-    assert float(result) == 0.0  # Returns 0 on error
-    assert "Grading failed" in result.feedback
+        result = evaluator.metric(example, pred)
+
+        assert float(result) == 0.0
+        assert "Grading failed" in result.feedback

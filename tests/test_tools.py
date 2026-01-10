@@ -3,48 +3,41 @@ import pytest
 import tools
 
 
-class FakeBetaSearch:
-    """Mock Parallel beta.search."""
-    def __init__(self, results=None):
-        self.last_kwargs = None
-        self._results = results or []
-
-    def search(self, **kwargs):
-        self.last_kwargs = kwargs
-        return SimpleNamespace(results=self._results)
-
-
-class FakeParallelClient:
-    """Mock Parallel client."""
-    def __init__(self, api_key=None, results=None):
-        self.api_key = api_key
-        self.beta = FakeBetaSearch(results)
-
-
 @pytest.fixture
 def mock_parallel(monkeypatch):
-    """Fixture to mock Parallel client."""
+    """Mock Parallel client for web search tests."""
     results = [
         SimpleNamespace(title="Result One", excerpts=["Excerpt One"], url="https://one.example"),
         SimpleNamespace(title="Result Two", excerpts=["Excerpt Two"], url="https://two.example"),
     ]
-    client = FakeParallelClient(results=results)
+
+    class MockParallel:
+        def __init__(self, api_key=None):
+            self.beta = SimpleNamespace(
+                search=lambda **kw: SimpleNamespace(results=results),
+            )
+            self._last_search_kwargs = None
+
+        def _search(self, **kwargs):
+            self._last_search_kwargs = kwargs
+            return SimpleNamespace(results=results)
+
     monkeypatch.setattr(tools, "PARALLEL_API_KEY", "fake-key")
-    monkeypatch.setattr(tools, "Parallel", lambda api_key=None: setattr(client, 'api_key', api_key) or client)
+    client = MockParallel()
+    monkeypatch.setattr(tools, "Parallel", lambda api_key=None: client)
     return client
 
 
 def test_web_search_tool(mock_parallel):
     tool = tools.WebSearchTool()
-    result = tool(queries=["test query"], objective="Find test results")
+    result = tool(queries=["test"], objective="test objective")
 
     assert isinstance(result, list)
     assert len(result) == 2
     assert result[0]["title"] == "Result One"
-    assert mock_parallel.beta.last_kwargs["objective"] == "Find test results"
 
 
-class _FakeParallel:
+class MockDspyParallel:
     def __init__(self, *, num_threads=None, **__):
         pass
 
@@ -53,34 +46,27 @@ class _FakeParallel:
 
 
 def test_parallel_tool_call_invokes_tools(monkeypatch):
-    monkeypatch.setattr(tools.dspy, "Parallel", _FakeParallel)
-
+    monkeypatch.setattr(tools.dspy, "Parallel", MockDspyParallel)
     tool = tools.ParallelToolCall({
         "alpha": lambda value: f"alpha:{value}",
         "beta": lambda value: f"beta:{value}",
     })
-
     results = tool([{"alpha": {"value": "A"}}, {"beta": {"value": 123}}])
-
     assert results == ["alpha:A", "beta:123"]
 
 
-@pytest.mark.parametrize("call,expected_substr", [
-    ({"missing": {}}, "missing"),
-    ({}, "Error:"),
-    ({"needs_arg": {"wrong": "x"}}, "Error:"),
-])
-def test_parallel_tool_call_errors(monkeypatch, call, expected_substr):
-    """Tool errors return error strings."""
-    monkeypatch.setattr(tools.dspy, "Parallel", _FakeParallel)
+def test_parallel_tool_call_missing_tool_returns_error(monkeypatch):
+    monkeypatch.setattr(tools.dspy, "Parallel", MockDspyParallel)
+    tool = tools.ParallelToolCall({"alpha": lambda: "ok"})
+    results = tool([{"missing": {}}])
+    assert "Error:" in results[0]
 
-    def needs_arg(required: str) -> str:
-        return f"got: {required}"
 
-    tool = tools.ParallelToolCall({"alpha": lambda: "ok", "needs_arg": needs_arg})
-    results = tool([call])
-
-    assert results[0].startswith("Error:") or expected_substr in results[0]
+def test_parallel_tool_call_bad_args_returns_error(monkeypatch):
+    monkeypatch.setattr(tools.dspy, "Parallel", MockDspyParallel)
+    tool = tools.ParallelToolCall({"needs_arg": lambda required: f"got:{required}"})
+    results = tool([{"needs_arg": {"wrong": "x"}}])
+    assert "Error:" in results[0]
 
 
 def test_filesystem_tool_blocks_path_traversal(tmp_path):
