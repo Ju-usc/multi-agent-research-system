@@ -3,6 +3,7 @@
 
 # Python cache
 __pycache__/
+.coverage
 
 # Jupyter Notebook
 .ipynb_checkpoints
