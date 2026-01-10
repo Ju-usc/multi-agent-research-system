@@ -1824,6 +1824,7 @@ dependencies = [
     { name = "parallel-web" },
     { name = "pydantic" },
     { name = "pytest" },
+    { name = "rich" },
 ]
 
 [package.dev-dependencies]
@@ -1843,6 +1844,7 @@ requires-dist = [
     { name = "parallel-web" },
     { name = "pydantic" },
     { name = "pytest" },
+    { name = "rich", specifier = ">=13.0.0" },
 ]
 
 [package.metadata.requires-dev]

@@ -12,7 +12,7 @@ from typing import Any
 import dspy
 from fastmcp import Client
 
-from tracer import trace
+
 
 MCP_URL = "http://localhost:8000/mcp"
 
@@ -97,7 +97,6 @@ class LocalSearchTool:
         self.mcp_url = mcp_url
         self.total_cost_usd = 0.0
 
-    @trace
     def __call__(self, queries: list[str]) -> list[dict[str, Any]]:
         results = []
         for query in queries:
@@ -124,7 +123,6 @@ class LocalFetchTool:
         self.mcp_url = mcp_url
         self.total_cost_usd = 0.0
 
-    @trace
     def __call__(self, docids: list[str]) -> list[dict[str, Any]]:
         if len(docids) > 5:
             return "Error: Too many docids. Max 5 allowed."

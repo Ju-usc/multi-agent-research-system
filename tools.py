@@ -17,9 +17,6 @@ from models import (
     SubagentTask,
     Todo,
 )
-from tracer import trace
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -36,7 +33,6 @@ class WebSearchTool:
         self._client: Parallel | None = None
         self.total_cost_usd = 0.0
 
-    @trace
     def __call__(
         self,
         queries: list[str],
@@ -74,7 +70,6 @@ class WebFetchTool:
         self._client: Parallel | None = None
         self.total_cost_usd = 0.0
 
-    @trace
     def __call__(
         self,
         urls: list[str],
@@ -112,7 +107,6 @@ class ParallelToolCall:
         self.tools = tools
         self._num_threads = num_threads
 
-    @trace
     def __call__(self, calls: list[dict]) -> list[str]:
         if not calls:
             return []
@@ -151,7 +145,6 @@ class FileSystemTool:
         if resolved.is_relative_to(self.root):
             return resolved
         return None
-    @trace
     def write(self, path: str, content: str) -> str:
         file_path = self._safe_path(path)
         if file_path is None:
@@ -160,7 +153,6 @@ class FileSystemTool:
         file_path.write_text(content)
         return f"Written to {path}"
 
-    @trace
     def read(self, path: str) -> str:
         file_path = self._safe_path(path)
         if file_path is None:
@@ -169,7 +161,6 @@ class FileSystemTool:
             return f"Error: File not found: {path}"
         return file_path.read_text()
 
-    @trace
     def tree(self, max_depth: int | None = None) -> str:
         if max_depth is None:
             max_depth = self.DEFAULT_TREE_DEPTH
@@ -194,12 +185,10 @@ class TodoListTool:
     def __init__(self) -> None:
         self._todos: list[Todo] = []
 
-    @trace
     def write(self, todos: list[Todo]) -> str:
         self._todos = todos
         return f"Updated {len(todos)} todos"
 
-    @trace
     def read(self) -> list[dict]:
         return [t.model_dump() for t in self._todos]
 
@@ -217,7 +206,6 @@ class SubagentTool:
         self._lm = lm
         self._adapter = adapter
 
-    @trace
     def __call__(self, task: SubagentTask) -> str:
         """Execute task and return SubagentResult JSON."""
         current_instructions = ExecuteSubagentTask.instructions

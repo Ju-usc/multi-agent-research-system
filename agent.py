@@ -1,4 +1,5 @@
 import logging
+import os
 from pathlib import Path
 
 import dspy
@@ -8,7 +9,7 @@ import config as cfg
 from config import ModelConfig
 from logger import AgentLogger, AgentLoggingCallback
 from tools import WebSearchTool, WebFetchTool, FileSystemTool, TodoListTool, SubagentTool, ParallelToolCall
-from tracer import trace
+from verbose import VerbosePrinter
 from models import AgentSignature
 from utils import create_model_cli_parser
 
@@ -115,7 +116,6 @@ class Agent(dspy.Module):
         self.lead_agent.lm = self.leadagent_lm
         self.lead_agent.adapter = ChatAdapter()
 
-    @trace
     def forward(self, query: str) -> dspy.Prediction:
         agent_logger = AgentLogger(
             log_dir=self.log_dir,
@@ -123,8 +123,12 @@ class Agent(dspy.Module):
             sub_model=self.subagent_lm.model,
             query=query,
         )
+        verbose = VerbosePrinter(enabled=bool(os.getenv("VERBOSE")))
+        if verbose.enabled:
+            verbose.print_metadata(agent_logger.metadata)
+
         with dspy.context(
-            callbacks=[AgentLoggingCallback(agent_logger)],
+            callbacks=[AgentLoggingCallback(agent_logger, verbose)],
             agent_type="lead",
             agent_name="lead_agent",
         ):
@@ -160,6 +164,7 @@ def parse_args():
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     args = parse_args()
 
     model_config = ModelConfig(lead=args.lead, sub=args.sub)
@@ -180,7 +185,8 @@ def main() -> None:
     if logger.isEnabledFor(logging.DEBUG):
         dspy.inspect_history(n=10)
 
-    print(result.answer)
+    if not os.getenv("VERBOSE"):
+        print(result.answer)
 
 if __name__ == "__main__":
     main()

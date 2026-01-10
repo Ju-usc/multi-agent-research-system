@@ -95,10 +95,16 @@ class AgentLogger:
 class AgentLoggingCallback(BaseCallback):
     """Emit AgentIteration events for ReAct modules and tools."""
 
-    def __init__(self, agent_logger: AgentLogger) -> None:
+    def __init__(self, agent_logger: AgentLogger, verbose_printer=None) -> None:
         self._agent_logger = agent_logger
+        self._verbose = verbose_printer
         self._tool_starts: dict[str, tuple[float, str, dict[str, Any], str, str]] = {}
         self._module_starts: dict[str, tuple[float, str, str]] = {}
+
+    def _emit(self, iteration: AgentIteration) -> None:
+        self._agent_logger.log(iteration)
+        if self._verbose:
+            self._verbose.print_iteration(iteration)
 
     def on_module_start(self, call_id: str, instance: Any, inputs: dict[str, Any]):
         if not isinstance(instance, dspy.ReAct):
@@ -113,15 +119,7 @@ class AgentLoggingCallback(BaseCallback):
         else:
             data = {"task": module_inputs["task"].model_dump(exclude_none=True)}
 
-        self._agent_logger.log(
-            AgentIteration(
-                agent_type=agent_type,
-                agent_name=agent_name,
-                event="start",
-                data=data,
-            )
-        )
-
+        self._emit(AgentIteration(agent_type=agent_type, agent_name=agent_name, event="start", data=data))
         self._module_starts[call_id] = (time.perf_counter(), agent_type, agent_name)
 
     def on_module_end(self, call_id: str, outputs: Any | None, exception: Exception | None = None):
@@ -143,15 +141,13 @@ class AgentLoggingCallback(BaseCallback):
                 else None
             )
 
-        self._agent_logger.log(
-            AgentIteration(
-                agent_type=agent_type,
-                agent_name=agent_name,
-                event="finish",
-                data=data,
-                error=str(exception) if exception else None,
-            )
-        )
+        self._emit(AgentIteration(
+            agent_type=agent_type,
+            agent_name=agent_name,
+            event="finish",
+            data=data,
+            error=str(exception) if exception else None,
+        ))
 
     def on_tool_start(self, call_id: str, instance: Any, inputs: dict[str, Any]):
         if instance.name == "finish":
@@ -171,17 +167,10 @@ class AgentLoggingCallback(BaseCallback):
         t0, tool_name, tool_args, agent_type, agent_name = start
         duration_ms = round((time.perf_counter() - t0) * 1000, 2)
 
-        self._agent_logger.log(
-            AgentIteration(
-                agent_type=agent_type,
-                agent_name=agent_name,
-                event="tool",
-                data={
-                    "tool": tool_name,
-                    "args": tool_args,
-                    "result": outputs,
-                    "duration_ms": duration_ms,
-                },
-                error=str(exception) if exception else None,
-            )
-        )
+        self._emit(AgentIteration(
+            agent_type=agent_type,
+            agent_name=agent_name,
+            event="tool",
+            data={"tool": tool_name, "args": tool_args, "result": outputs, "duration_ms": duration_ms},
+            error=str(exception) if exception else None,
+        ))
