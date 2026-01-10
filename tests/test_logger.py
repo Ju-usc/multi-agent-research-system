@@ -88,3 +88,130 @@ def test_agent_logging_callback_logs_tool_event(tmp_path):
     assert rec["data"]["args"] == {"x": 1}
     assert rec["data"]["result"] == "1"
     assert "duration_ms" in rec["data"]
+
+
+def test_agent_logging_callback_ignores_finish_tool(tmp_path):
+    """Finish tool should not be logged."""
+    agent_logger = AgentLogger(
+        log_dir=str(tmp_path),
+        lead_model="lead",
+        sub_model="sub",
+        query="q",
+    )
+
+    finish_tool = dspy.Tool(lambda: "done", name="finish")
+    callback = AgentLoggingCallback(agent_logger)
+
+    with dspy.context(
+        callbacks=[callback],
+        agent_type="lead",
+        agent_name="lead_agent",
+    ):
+        finish_tool()
+
+    records = [json.loads(line) for line in agent_logger.path.read_text().splitlines()]
+    # Only metadata, no tool event for "finish"
+    assert len(records) == 1
+    assert records[0]["type"] == "metadata"
+
+
+def test_agent_logging_callback_module_end_without_start(tmp_path):
+    """on_module_end should gracefully handle missing start."""
+    agent_logger = AgentLogger(
+        log_dir=str(tmp_path),
+        lead_model="lead",
+        sub_model="sub",
+        query="q",
+    )
+
+    callback = AgentLoggingCallback(agent_logger)
+    # Call on_module_end with unknown call_id
+    callback.on_module_end("unknown_call_id", outputs=None)
+
+    # Should not crash, only metadata logged
+    records = [json.loads(line) for line in agent_logger.path.read_text().splitlines()]
+    assert len(records) == 1
+
+
+def test_agent_logging_callback_tool_end_without_start(tmp_path):
+    """on_tool_end should gracefully handle missing start."""
+    agent_logger = AgentLogger(
+        log_dir=str(tmp_path),
+        lead_model="lead",
+        sub_model="sub",
+        query="q",
+    )
+
+    callback = AgentLoggingCallback(agent_logger)
+    # Call on_tool_end with unknown call_id
+    callback.on_tool_end("unknown_call_id", outputs=None)
+
+    # Should not crash, only metadata logged
+    records = [json.loads(line) for line in agent_logger.path.read_text().splitlines()]
+    assert len(records) == 1
+
+
+def test_agent_logging_callback_with_verbose_printer(tmp_path):
+    """Test callback works with verbose printer."""
+    agent_logger = AgentLogger(
+        log_dir=str(tmp_path),
+        lead_model="lead",
+        sub_model="sub",
+        query="q",
+    )
+
+    # Mock verbose printer
+    class MockVerbosePrinter:
+        def __init__(self):
+            self.iterations = []
+
+        def print_iteration(self, iteration):
+            self.iterations.append(iteration)
+
+    mock_verbose = MockVerbosePrinter()
+    callback = AgentLoggingCallback(agent_logger, verbose_printer=mock_verbose)
+
+    tool = dspy.Tool(lambda: "result", name="test_tool")
+
+    with dspy.context(
+        callbacks=[callback],
+        agent_type="lead",
+        agent_name="lead_agent",
+    ):
+        tool()
+
+    # Verify verbose printer received the iteration
+    assert len(mock_verbose.iterations) == 1
+    assert mock_verbose.iterations[0].event == "tool"
+    assert mock_verbose.iterations[0].data["tool"] == "test_tool"
+
+
+def test_agent_logging_callback_with_exception(tmp_path):
+    """Test callback logs errors properly."""
+    agent_logger = AgentLogger(
+        log_dir=str(tmp_path),
+        lead_model="lead",
+        sub_model="sub",
+        query="q",
+    )
+
+    def failing_tool():
+        raise ValueError("tool failed")
+
+    tool = dspy.Tool(failing_tool, name="failing")
+    callback = AgentLoggingCallback(agent_logger)
+
+    with dspy.context(
+        callbacks=[callback],
+        agent_type="lead",
+        agent_name="lead_agent",
+    ):
+        try:
+            tool()
+        except ValueError:
+            pass
+
+    records = [json.loads(line) for line in agent_logger.path.read_text().splitlines()]
+    # metadata + tool event with error
+    assert len(records) == 2
+    assert records[1]["error"] is not None or records[1]["data"].get("result") is None

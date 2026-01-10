@@ -81,3 +81,143 @@ def test_filesystem_tool_blocks_path_traversal(tmp_path):
         result = fs.write(path, "bad")
         assert result.startswith("Error:") and "Invalid path" in result
 
+
+def test_filesystem_tool_read_nonexistent(tmp_path):
+    fs = tools.FileSystemTool(root=tmp_path / "sandbox")
+    result = fs.read("nonexistent.txt")
+    assert "Error:" in result and "not found" in result
+
+
+def test_filesystem_tool_read_path_traversal(tmp_path):
+    fs = tools.FileSystemTool(root=tmp_path / "sandbox")
+    result = fs.read("../escape.txt")
+    assert "Error:" in result and "Invalid path" in result
+
+
+def test_filesystem_tool_tree(tmp_path):
+    fs = tools.FileSystemTool(root=tmp_path / "sandbox")
+    fs.write("a.txt", "a")
+    fs.write("sub/b.txt", "b")
+
+    tree = fs.tree()
+    assert "a.txt" in tree
+    assert "sub/" in tree
+    assert "sub/b.txt" in tree
+
+
+def test_filesystem_tool_tree_empty(tmp_path):
+    fs = tools.FileSystemTool(root=tmp_path / "sandbox")
+    assert fs.tree() == "(empty)"
+
+
+def test_filesystem_tool_tree_depth_limit(tmp_path):
+    fs = tools.FileSystemTool(root=tmp_path / "sandbox")
+    fs.write("a.txt", "a")
+    fs.write("sub/b.txt", "b")
+    fs.write("sub/deep/c.txt", "c")
+
+    # max_depth=1 should only show top-level
+    tree = fs.tree(max_depth=1)
+    assert "a.txt" in tree
+    assert "sub/" in tree
+    # sub/b.txt is depth 2, should not appear
+    assert "sub/b.txt" not in tree
+
+
+def test_filesystem_tool_clear(tmp_path):
+    fs = tools.FileSystemTool(root=tmp_path / "sandbox")
+    fs.write("file.txt", "content")
+    assert (tmp_path / "sandbox" / "file.txt").exists()
+
+    fs.clear()
+    assert not (tmp_path / "sandbox" / "file.txt").exists()
+    assert (tmp_path / "sandbox").exists()  # Root recreated
+
+
+def test_parallel_tool_call_empty():
+    tool = tools.ParallelToolCall({})
+    assert tool([]) == []
+
+
+@pytest.fixture
+def mock_parallel_fetch(monkeypatch):
+    """Mock Parallel client for web fetch tests."""
+    results = [
+        SimpleNamespace(title="Page One", excerpts=["Content One"], url="https://one.example"),
+    ]
+
+    class MockParallel:
+        def __init__(self, api_key=None):
+            self.beta = SimpleNamespace(
+                extract=lambda **kw: SimpleNamespace(results=results),
+            )
+
+    monkeypatch.setattr(tools, "PARALLEL_API_KEY", "fake-key")
+    monkeypatch.setattr(tools, "Parallel", MockParallel)
+    return MockParallel
+
+
+def test_web_fetch_tool(mock_parallel_fetch):
+    tool = tools.WebFetchTool()
+    result = tool(urls=["https://example.com"], objective="get content")
+
+    assert isinstance(result, list)
+    assert len(result) == 1
+    assert result[0]["title"] == "Page One"
+    assert result[0]["url"] == "https://one.example"
+    assert "Content One" in result[0]["content"]
+
+
+def test_web_fetch_tool_too_many_urls(mock_parallel_fetch):
+    tool = tools.WebFetchTool()
+    result = tool(urls=["https://a.com"] * 6, objective="test")
+    assert "Error:" in result and "Too many URLs" in result
+
+
+def test_web_fetch_tool_api_error(monkeypatch):
+    """Test fetch tool handles API errors gracefully."""
+    class MockParallel:
+        def __init__(self, api_key=None):
+            self.beta = SimpleNamespace(
+                extract=lambda **kw: (_ for _ in ()).throw(RuntimeError("API down")),
+            )
+
+    monkeypatch.setattr(tools, "PARALLEL_API_KEY", "fake-key")
+    monkeypatch.setattr(tools, "Parallel", MockParallel)
+
+    tool = tools.WebFetchTool()
+    result = tool(urls=["https://example.com"], objective="test")
+    assert "Error:" in result and "Fetch failed" in result
+
+
+def test_web_search_tool_api_error(monkeypatch):
+    """Test search tool handles API errors gracefully."""
+    class MockParallel:
+        def __init__(self, api_key=None):
+            self.beta = SimpleNamespace(
+                search=lambda **kw: (_ for _ in ()).throw(RuntimeError("API down")),
+            )
+
+    monkeypatch.setattr(tools, "PARALLEL_API_KEY", "fake-key")
+    monkeypatch.setattr(tools, "Parallel", MockParallel)
+
+    tool = tools.WebSearchTool()
+    result = tool(queries=["test"], objective="test objective")
+    assert "Error:" in result and "Search failed" in result
+
+
+def test_web_search_tool_cost_tracking(mock_parallel):
+    tool = tools.WebSearchTool()
+    assert tool.total_cost_usd == 0.0
+
+    tool(queries=["test"], objective="test")
+    assert tool.total_cost_usd == tools.WebSearchTool.COST_USD
+
+
+def test_web_fetch_tool_cost_tracking(mock_parallel_fetch):
+    tool = tools.WebFetchTool()
+    assert tool.total_cost_usd == 0.0
+
+    tool(urls=["https://example.com"], objective="test")
+    assert tool.total_cost_usd == tools.WebFetchTool.COST_USD
+
