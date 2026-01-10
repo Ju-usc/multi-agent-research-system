@@ -1,9 +1,3 @@
-"""Verbose terminal output for agent execution.
-
-Human-readable console output. Separate from logger.py (JSONL file).
-Both consume AgentIteration/AgentMetadata dataclasses.
-"""
-
 from rich.console import Console
 from rich.panel import Panel
 from rich.rule import Rule
@@ -13,7 +7,6 @@ from rich.text import Text
 
 from logger import AgentIteration, AgentMetadata
 
-# Tokyo Night theme (same as RLM)
 COLORS = {
     "primary": "#7AA2F7",
     "secondary": "#BB9AF7",
@@ -28,8 +21,6 @@ COLORS = {
 
 
 class VerbosePrinter:
-    """Rich console printer for agent verbose output."""
-
     def __init__(self, enabled: bool = True):
         self.enabled = enabled
         self.console = Console() if enabled else None
@@ -37,7 +28,6 @@ class VerbosePrinter:
     def print_metadata(self, metadata: AgentMetadata) -> None:
         if not self.enabled:
             return
-
         title = Text()
         title.append("◆ ", style=Style(color=COLORS["accent"]))
         title.append("Agent", style=Style(color=COLORS["primary"], bold=True))
@@ -56,7 +46,6 @@ class VerbosePrinter:
     def print_iteration(self, iteration: AgentIteration) -> None:
         if not self.enabled:
             return
-
         if iteration.event == "start":
             self._print_start(iteration)
         elif iteration.event == "tool":
@@ -66,10 +55,7 @@ class VerbosePrinter:
 
     def _print_start(self, iteration: AgentIteration) -> None:
         agent_label = f"{iteration.agent_type}:{iteration.agent_name}"
-        rule = Rule(
-            Text(f" {agent_label} ", style=Style(color=COLORS["primary"])),
-            style=COLORS["border"],
-        )
+        rule = Rule(Text(f" {agent_label} ", style=Style(color=COLORS["primary"])), style=COLORS["border"])
         self.console.print(rule)
 
     def _print_tool(self, iteration: AgentIteration) -> None:
@@ -82,7 +68,6 @@ class VerbosePrinter:
         header.append(tool_name, style=Style(color=COLORS["success"], bold=True))
         header.append(f"  ({duration_ms:.0f}ms)", style=Style(color=COLORS["muted"]))
 
-        # Truncate result for display
         result = data.get("result")
         result_str = str(result)[:200] + "..." if result and len(str(result)) > 200 else str(result)
 
@@ -105,7 +90,6 @@ class VerbosePrinter:
         header.append(f"  ({duration_ms:.0f}ms)", style=Style(color=COLORS["muted"]))
 
         answer = data.get("answer") or data.get("result")
-        # Lead agent: show full answer, subagents: truncate
         if iteration.agent_type == "lead":
             answer_str = str(answer) if answer else "None"
         else:

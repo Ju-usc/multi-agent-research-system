@@ -1,5 +1,3 @@
-"""BrowseComp-Plus dataset and local search tools."""
-
 from __future__ import annotations
 
 import asyncio
@@ -12,12 +10,7 @@ from typing import Any
 import dspy
 from fastmcp import Client
 
-
-
 MCP_URL = "http://localhost:8000/mcp"
-
-
-# ---------- Dataset ----------
 
 
 @dataclass
@@ -31,8 +24,6 @@ class BrowseCompTask:
 
 
 class BrowseCompPlusDataset:
-    """Load decrypted BrowseComp-Plus tasks."""
-
     def __init__(self, jsonl_path: str | Path, num_examples: int | None = None, seed: int = 42):
         self.seed = seed
         self.num_examples = num_examples
@@ -44,37 +35,30 @@ class BrowseCompPlusDataset:
         with open(path, encoding="utf-8") as f:
             for line in f:
                 row = json.loads(line)
-                tasks.append(
-                    BrowseCompTask(
-                        query_id=str(row["query_id"]),
-                        query=row["query"],
-                        answer=row["answer"],
-                        gold_docs={d["docid"] for d in row["gold_docs"]},
-                        evidence_docs={d["docid"] for d in row["evidence_docs"]},
-                        negative_docs={d["docid"] for d in row["negative_docs"]},
-                    )
-                )
+                tasks.append(BrowseCompTask(
+                    query_id=str(row["query_id"]),
+                    query=row["query"],
+                    answer=row["answer"],
+                    gold_docs={d["docid"] for d in row["gold_docs"]},
+                    evidence_docs={d["docid"] for d in row["evidence_docs"]},
+                    negative_docs={d["docid"] for d in row["negative_docs"]},
+                ))
         return tasks
 
     def load(self) -> list[dspy.Example]:
-        """Load dataset as dspy.Example list (compatible with BrowseCompDataset)."""
         if self._examples is not None:
             return self._examples
-
         examples = [
             dspy.Example(problem=t.query, answer=t.answer).with_inputs("problem")
             for t in self._tasks
         ]
-
         if self.num_examples is not None:
             rng = random.Random(self.seed)
             examples = rng.sample(examples, min(self.num_examples, len(examples)))
-
         self._examples = examples
         return examples
 
     def split(self, train_size: float = 0.5) -> tuple[list, list]:
-        """Split into train/val sets."""
         examples = self.load()
         rng = random.Random(self.seed)
         shuffled = rng.sample(examples, len(examples))
@@ -85,12 +69,7 @@ class BrowseCompPlusDataset:
         return len(self._tasks)
 
 
-# ---------- Local Tools ----------
-
-
 class LocalSearchTool:
-    """Search via local BM25 MCP server."""
-
     COST_USD = 0.0
 
     def __init__(self, mcp_url: str = MCP_URL):
@@ -103,9 +82,7 @@ class LocalSearchTool:
             for query in queries:
                 hits = asyncio.run(self._search(query))
                 results.extend(hits)
-            if not results:
-                return "Error: No results found."
-            return results
+            return results if results else "Error: No results found."
         except Exception as e:
             return f"Error: Search failed: {e}"
 
@@ -113,15 +90,10 @@ class LocalSearchTool:
         async with Client(self.mcp_url) as client:
             result = await client.call_tool("search", {"query": query})
             hits = json.loads(result.content[0].text)
-            return [
-                {"title": f"Doc {h['docid']}", "excerpt": h["snippet"], "url": h["docid"]}
-                for h in hits
-            ]
+            return [{"title": f"Doc {h['docid']}", "excerpt": h["snippet"], "url": h["docid"]} for h in hits]
 
 
 class LocalFetchTool:
-    """Fetch document via local MCP server."""
-
     COST_USD = 0.0
 
     def __init__(self, mcp_url: str = MCP_URL):
@@ -133,9 +105,7 @@ class LocalFetchTool:
             return "Error: Too many docids. Max 5 allowed."
         try:
             results = [asyncio.run(self._fetch(docid)) for docid in docids]
-            if not results:
-                return "Error: No documents found."
-            return results
+            return results if results else "Error: No documents found."
         except Exception as e:
             return f"Error: Fetch failed: {e}"
 
