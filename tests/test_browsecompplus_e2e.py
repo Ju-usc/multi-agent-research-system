@@ -11,7 +11,7 @@ Run with:
 import os
 import pytest
 
-from browsecompplus import LocalSearchTool, LocalFetchTool, BrowseCompDataset
+from browsecompplus import LocalSearchTool, LocalFetchTool, BrowseCompPlusDataset
 
 pytestmark = pytest.mark.skipif(
     not os.environ.get("RUN_E2E"),
@@ -53,19 +53,16 @@ class TestLocalFetchTool:
         assert len(results[0]["content"]) > 0
 
 
-class TestBrowseCompDataset:
-    def test_load_from_huggingface(self):
-        """Test loading directly from HuggingFace (decrypted)."""
-        # This would require the decrypted jsonl file
-        # Skip if file doesn't exist
+class TestBrowseCompPlusDataset:
+    def test_load_decrypted(self):
         dataset_path = "../BrowseComp-Plus/data/browsecomp_plus_decrypted.jsonl"
         if not os.path.exists(dataset_path):
             pytest.skip("Decrypted dataset not found")
         
-        dataset = BrowseCompDataset(dataset_path)
-        assert len(dataset) == 830
+        dataset = BrowseCompPlusDataset(dataset_path, num_examples=10, seed=42)
+        assert len(dataset) == 830  # total tasks
         
-        tasks = dataset.sample(10, seed=42)
-        assert len(tasks) == 10
-        assert tasks[0].query
-        assert tasks[0].answer
+        examples = dataset.load()
+        assert len(examples) == 10  # sampled
+        assert examples[0].problem
+        assert examples[0].answer

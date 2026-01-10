@@ -68,7 +68,7 @@ class MultiAgentResearchSystem(dspy.Module):
             
             prediction.report = prediction.answer
             prediction.elapsed_seconds = time.perf_counter() - start_time
-            prediction.tool_cost_usd = agent.web_search_tool.total_cost_usd + agent.web_fetch_tool.total_cost_usd
+            prediction.tool_cost_usd = agent.search_tool.total_cost_usd + agent.fetch_tool.total_cost_usd
             
             return prediction
         finally:
@@ -239,6 +239,7 @@ class BrowseCompEvaluator:
 
 def _parse_args():
     parser = create_model_cli_parser("Run BrowseComp evaluation")
+    parser.add_argument("--offline", action="store_true", help="Use BrowseComp-Plus with local corpus (requires MCP server)")
     parser.add_argument("--num-examples", type=int, default=8, help="Number of dataset examples (split 50/50 train/val)")
     parser.add_argument("--num-threads", type=int, default=5, help="Parallel evaluation threads")
     parser.add_argument("--optimize", action="store_true", help="Run GEPA optimization")
@@ -258,7 +259,7 @@ def main() -> None:
     print("=" * 50)
 
     # Build config from CLI args
-    config = ModelConfig(lead=args.lead, sub=args.sub)
+    config = ModelConfig(lead=args.lead, sub=args.sub, offline=args.offline)
     print(f"🤖 Models: lead={config.lead}, sub={config.sub}")
 
     if dspy.settings.lm is None:
@@ -277,8 +278,18 @@ def main() -> None:
     # Initialize evaluator with grader and optimizer LMs
     evaluator = BrowseCompEvaluator(args)
 
-    # Load dataset
-    dataset = BrowseCompDataset(num_examples=args.num_examples, seed=args.seed)
+    # Load dataset based on --offline flag
+    if args.offline:
+        from browsecompplus import BrowseCompPlusDataset
+        dataset = BrowseCompPlusDataset(
+            "../BrowseComp-Plus/data/browsecomp_plus_decrypted.jsonl",
+            num_examples=args.num_examples,
+            seed=args.seed,
+        )
+        print("📚 Using BrowseComp-Plus (offline corpus)")
+    else:
+        dataset = BrowseCompDataset(num_examples=args.num_examples, seed=args.seed)
+
     examples = dataset.load()
     print(f"📚 Loaded {len(examples)} examples")
 

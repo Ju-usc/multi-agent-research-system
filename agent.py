@@ -27,8 +27,14 @@ class Agent(dspy.Module):
 
         self.fs_tool = FileSystemTool(root=work_dir)
         self.todo_list_tool = TodoListTool()
-        self.web_search_tool = WebSearchTool()
-        self.web_fetch_tool = WebFetchTool()
+
+        if config.offline:
+            from browsecompplus import LocalSearchTool, LocalFetchTool
+            self.search_tool = LocalSearchTool()
+            self.fetch_tool = LocalFetchTool()
+        else:
+            self.search_tool = WebSearchTool()
+            self.fetch_tool = WebFetchTool()
 
         self.leadagent_lm = dspy.LM(
             model=config.lead,
@@ -45,14 +51,14 @@ class Agent(dspy.Module):
 
         subagent_tools = [
             dspy.Tool(
-                self.web_search_tool,
-                name="web_search",
-                desc="Search the web.",
+                self.search_tool,
+                name="search",
+                desc="Search for information.",
             ),
             dspy.Tool(
-                self.web_fetch_tool,
-                name="web_fetch",
-                desc="Fetch URL content.",
+                self.fetch_tool,
+                name="fetch",
+                desc="Fetch document content.",
             ),
             dspy.Tool(
                 self.fs_tool.write,
@@ -130,11 +136,10 @@ class Agent(dspy.Module):
         Args:
             work_dir: New workspace directory (will be created if needed)
         """
-        # absolute path required for _safe_path() sandbox check
         self.fs_tool.root = work_dir.resolve()
         work_dir.mkdir(parents=True, exist_ok=True)
-        self.web_search_tool.total_cost_usd = 0.0
-        self.web_fetch_tool.total_cost_usd = 0.0
+        self.search_tool.total_cost_usd = 0.0
+        self.fetch_tool.total_cost_usd = 0.0
         self.todo_list_tool.clear()
 
 
