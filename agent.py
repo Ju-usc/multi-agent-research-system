@@ -1,4 +1,5 @@
 import logging
+import os
 from pathlib import Path
 
 import dspy
@@ -6,8 +7,9 @@ from dspy.adapters.chat_adapter import ChatAdapter
 
 import config as cfg
 from config import ModelConfig
+from logger import AgentLogger, AgentLoggingCallback
 from tools import WebSearchTool, WebFetchTool, FileSystemTool, TodoListTool, SubagentTool, ParallelToolCall
-from tracer import trace
+from verbose import VerbosePrinter
 from models import AgentSignature
 from utils import create_model_cli_parser
 
@@ -19,13 +21,21 @@ class Agent(dspy.Module):
         *,
         config: ModelConfig = ModelConfig(),
         work_dir: Path = Path("memory"),
+        log_dir: str,
     ) -> None:
         super().__init__()
+        self.log_dir = log_dir
 
         self.fs_tool = FileSystemTool(root=work_dir)
         self.todo_list_tool = TodoListTool()
-        self.web_search_tool = WebSearchTool()
-        self.web_fetch_tool = WebFetchTool()
+
+        if config.offline:
+            from browsecompplus import LocalSearchTool, LocalFetchTool
+            self.search_tool = LocalSearchTool()
+            self.fetch_tool = LocalFetchTool()
+        else:
+            self.search_tool = WebSearchTool()
+            self.fetch_tool = WebFetchTool()
 
         self.leadagent_lm = dspy.LM(
             model=config.lead,
@@ -42,14 +52,14 @@ class Agent(dspy.Module):
 
         subagent_tools = [
             dspy.Tool(
-                self.web_search_tool,
-                name="web_search",
-                desc="Search the web.",
+                self.search_tool,
+                name="search",
+                desc="Search for information.",
             ),
             dspy.Tool(
-                self.web_fetch_tool,
-                name="web_fetch",
-                desc="Fetch URL content.",
+                self.fetch_tool,
+                name="fetch",
+                desc="Fetch document content.",
             ),
             dspy.Tool(
                 self.fs_tool.write,
@@ -106,9 +116,23 @@ class Agent(dspy.Module):
         self.lead_agent.lm = self.leadagent_lm
         self.lead_agent.adapter = ChatAdapter()
 
-    @trace
     def forward(self, query: str) -> dspy.Prediction:
-        return self.lead_agent(query=query)
+        agent_logger = AgentLogger(
+            log_dir=self.log_dir,
+            lead_model=self.leadagent_lm.model,
+            sub_model=self.subagent_lm.model,
+            query=query,
+        )
+        verbose = VerbosePrinter(enabled=bool(os.getenv("VERBOSE")))
+        if verbose.enabled:
+            verbose.print_metadata(agent_logger.metadata)
+
+        with dspy.context(
+            callbacks=[AgentLoggingCallback(agent_logger, verbose)],
+            agent_type="lead",
+            agent_name="lead_agent",
+        ):
+            return self.lead_agent(query=query)
 
     def reset_workspace(self, work_dir: Path) -> None:
         """Reset agent state for a new evaluation run.
@@ -116,11 +140,10 @@ class Agent(dspy.Module):
         Args:
             work_dir: New workspace directory (will be created if needed)
         """
-        # absolute path required for _safe_path() sandbox check
         self.fs_tool.root = work_dir.resolve()
         work_dir.mkdir(parents=True, exist_ok=True)
-        self.web_search_tool.total_cost_usd = 0.0
-        self.web_fetch_tool.total_cost_usd = 0.0
+        self.search_tool.total_cost_usd = 0.0
+        self.fetch_tool.total_cost_usd = 0.0
         self.todo_list_tool.clear()
 
 
@@ -132,6 +155,7 @@ def parse_args():
             "Research query to run through the agent.",
         ),
     )
+    parser.add_argument("--log-dir", default="logs", help="Directory for agent execution logs (JSONL).")
     args = parser.parse_args()
     if args.query is None:
         parser.error("--query is required")
@@ -140,6 +164,7 @@ def parse_args():
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     args = parse_args()
 
     model_config = ModelConfig(lead=args.lead, sub=args.sub)
@@ -155,12 +180,13 @@ def main() -> None:
         adapter=ChatAdapter(),
     )
 
-    agent = Agent(config=model_config)
+    agent = Agent(config=model_config, log_dir=args.log_dir)
     result = agent(query=args.query)
     if logger.isEnabledFor(logging.DEBUG):
         dspy.inspect_history(n=10)
 
-    print(result.answer)
+    if not os.getenv("VERBOSE"):
+        print(result.answer)
 
 if __name__ == "__main__":
     main()

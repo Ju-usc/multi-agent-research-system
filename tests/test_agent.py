@@ -1,71 +1,66 @@
-"""Lightweight agent-path tests to keep the branch focused on sync behaviour."""
+"""Tests for Agent module."""
 
-import json
 from types import SimpleNamespace
+import pytest
+
+import agent
+from tools import FileSystemTool, WebSearchTool, WebFetchTool, TodoListTool
+from models import Todo
 
 
-def test_agent_forward_invokes_lead_agent():
-    import agent
+class StubLM:
+    model = "stub-model"
 
-    calls: list[dict] = []
+
+@pytest.fixture
+def stub_agent(tmp_path):
+    """Create agent with stubbed dependencies (no LM init)."""
+    a = agent.Agent.__new__(agent.Agent)
+    a.leadagent_lm = StubLM()
+    a.subagent_lm = StubLM()
+    a.log_dir = str(tmp_path)
+    a.fs_tool = FileSystemTool(root=tmp_path / "memory")
+    a.search_tool = WebSearchTool.__new__(WebSearchTool)
+    a.search_tool.total_cost_usd = 0.0
+    a.fetch_tool = WebFetchTool.__new__(WebFetchTool)
+    a.fetch_tool.total_cost_usd = 0.0
+    a.todo_list_tool = TodoListTool()
+    return a
+
+
+def test_forward_invokes_lead_agent(stub_agent):
+    calls = []
 
     class StubLead:
-        def __call__(self, **kwargs):
-            calls.append(kwargs)
+        def __call__(self, **kw):
+            calls.append(kw)
             return SimpleNamespace(answer="stubbed")
 
-    agent_instance = agent.Agent.__new__(agent.Agent)
-    agent_instance.lead_agent = StubLead()
-
-    result = agent.Agent.forward(agent_instance, query="quick check")
+    stub_agent.lead_agent = StubLead()
+    result = agent.Agent.forward(stub_agent, query="test")
 
     assert result.answer == "stubbed"
-    assert calls == [{"query": "quick check"}]
+    assert calls == [{"query": "test"}]
+
+
+def test_reset_workspace(stub_agent, tmp_path):
+    stub_agent.search_tool.total_cost_usd = 0.05
+    stub_agent.fetch_tool.total_cost_usd = 0.01
+    stub_agent.todo_list_tool._todos = [Todo(id="1", content="x", status="pending", priority="high")]
+
+    new_dir = tmp_path / "new_workspace"
+    stub_agent.reset_workspace(new_dir)
+
+    assert stub_agent.fs_tool.root == new_dir
+    assert new_dir.exists()
+    assert stub_agent.search_tool.total_cost_usd == 0.0
+    assert stub_agent.fetch_tool.total_cost_usd == 0.0
+    assert stub_agent.todo_list_tool._todos == []
 
 
 def test_todo_list_round_trip():
-    from tools import TodoListTool
-    from models import Todo
-
     tool = TodoListTool()
-    todos = [
-        Todo(id="1", content="Sketch experiment plan", status="pending", priority="high"),
-    ]
+    todos = [Todo(id="1", content="Plan", status="pending", priority="high")]
 
-    write_response = json.loads(tool.write(todos))
-    assert write_response["isError"] is False
-    assert "Updated 1 todos" in write_response["message"]
-
-    read_response = json.loads(tool.read())
-    assert read_response["isError"] is False
-    assert "Sketch experiment plan" in read_response["message"]
-
-
-def test_agent_reset_workspace(tmp_path):
-    """Test that reset_workspace correctly resets all agent state."""
-    import agent
-    from tools import FileSystemTool, WebSearchTool, WebFetchTool, TodoListTool
-    from models import Todo
-
-    # Create agent instance manually (avoid LM initialization)
-    agent_instance = agent.Agent.__new__(agent.Agent)
-    agent_instance.fs_tool = FileSystemTool(root=tmp_path / "initial")
-    agent_instance.web_search_tool = WebSearchTool.__new__(WebSearchTool)
-    agent_instance.web_search_tool.total_cost_usd = 0.05
-    agent_instance.web_fetch_tool = WebFetchTool.__new__(WebFetchTool)
-    agent_instance.web_fetch_tool.total_cost_usd = 0.01
-    agent_instance.todo_list_tool = TodoListTool()
-    agent_instance.todo_list_tool._todos = [
-        Todo(id="1", content="test", status="pending", priority="high")
-    ]
-
-    # Reset to new workspace
-    new_dir = tmp_path / "new_workspace"
-    agent_instance.reset_workspace(new_dir)
-
-    assert agent_instance.fs_tool.root == new_dir
-    assert new_dir.exists()
-    assert agent_instance.web_search_tool.total_cost_usd == 0.0
-    assert agent_instance.web_fetch_tool.total_cost_usd == 0.0
-    assert agent_instance.todo_list_tool._todos == []
-
+    assert tool.write(todos) == "Updated 1 todos"
+    assert tool.read()[0]["content"] == "Plan"

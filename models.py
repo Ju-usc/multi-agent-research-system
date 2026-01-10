@@ -5,15 +5,6 @@ from pydantic import BaseModel, Field
 import dspy
 
 
-class ToolResponse(BaseModel):
-    """Unified response format for all tools."""
-    isError: bool
-    message: str
-
-    def __str__(self) -> str:
-        return self.model_dump_json()
-
-
 class SubagentTask(BaseModel):
     """Atomic research task for a subagent."""
     name: str = Field(description="Name of the task or subagent", max_length=100)

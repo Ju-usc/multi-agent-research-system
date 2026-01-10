@@ -34,12 +34,14 @@ class ModelConfig:
         lead_max_tokens: int = DEFAULT_LEAD_MAX_TOKENS,
         sub_max_tokens: int = DEFAULT_SUB_MAX_TOKENS,
         temperature: float = DEFAULT_TEMPERATURE,
+        offline: bool = False,
     ):
         self.lead = lead
         self.sub = sub
         self.lead_max_tokens = lead_max_tokens
         self.sub_max_tokens = sub_max_tokens
         self.temperature = temperature
+        self.offline = offline
 
 # ========== EVALUATION MODELS (Fixed for experimental consistency) ==========
 # These models are used for evaluation/optimization across all experiments
