@@ -82,6 +82,7 @@ class BrowseCompEvaluator:
     def __init__(self, args):
         self.args = args
         self.reflection_lm = None  # Initialized lazily if optimization requested
+        self.total_cost_accumulated = 0.0
         
         # Initialize grader LM once for all evaluations (major efficiency improvement)
         self.grader_lm = dspy.LM(
@@ -162,6 +163,7 @@ class BrowseCompEvaluator:
         
         usage = pred.get_lm_usage() or {}
         total_cost = self.calculate_lm_cost(usage) + pred.tool_cost_usd
+        self.total_cost_accumulated += total_cost
         
         # Composite score: accuracy / (1 + cost) - rewards correct + cheap
         composite_score = accuracy / (1 + total_cost)
