@@ -107,14 +107,13 @@ class ParallelToolCall:
         self.tools = tools
         self._num_threads = num_threads
 
-    def __call__(self, calls: list[dict]) -> list[str]:
+    def __call__(self, calls: list[dict]) -> list[Any]:
         if not calls:
             return []
 
         parallel = dspy.Parallel(num_threads=self._num_threads, provide_traceback=True)
         exec_pairs = [(self._invoke, (call,)) for call in calls]
-        results = parallel(exec_pairs)
-        return [str(result) for result in results]
+        return parallel(exec_pairs)
 
     def _invoke(self, call: dict) -> Any:
         name = None
