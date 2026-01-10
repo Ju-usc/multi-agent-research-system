@@ -328,9 +328,8 @@ def main() -> None:
         print(f"📊 Examples: {len(examples)} (train={len(train)}, val={len(val)})")
         print(f"🧬 Candidates: {len(results.candidates)}")
         print(f"🔄 Metric calls: {results.total_metric_calls}")
-        
-        print(f"💰 Total cost: ${evaluator.total_cost_accumulated:.2f}")
-        logger.info(f"GEPA complete: baseline_acc={baseline_accuracy:.0%}, best_acc={best_accuracy:.0%}, candidates={len(results.candidates)}, cost=${evaluator.total_cost_accumulated:.2f}")
+
+        logger.info(f"GEPA complete: baseline_acc={baseline_accuracy:.0%}, best_acc={best_accuracy:.0%}, candidates={len(results.candidates)}")
         
         # Compare baseline vs optimized prompts
         baseline_program = results.candidates[0]

@@ -166,7 +166,7 @@ class FileSystemTool:
         paths = []
         for p in sorted(self.root.rglob("*")):
             relative = p.relative_to(self.root)
-            if max_depth is None or len(relative.parts) <= max_depth:
+            if len(relative.parts) <= max_depth:
                 paths.append(str(relative) + ("/" if p.is_dir() else ""))
 
         return "\n".join(paths) or "(empty)"
