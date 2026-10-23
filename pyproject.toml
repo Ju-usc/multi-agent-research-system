@@ -3,7 +3,7 @@ name = "multi-agent-research-system"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
-    "dspy @ git+https://github.com/stanfordnlp/dspy.git@main",
+    "dspy>=3.4.1,<4",
     "openai",
     "jupyter",
     "pydantic",

@@ -189,7 +189,12 @@ class BrowseCompEvaluator:
         return ScoreWithFeedback(score=composite_score, feedback=feedback)
     
     def optimize_with_gepa(self, program: MultiAgentResearchSystem, train: list, val: list) -> MultiAgentResearchSystem:
-        """Run GEPA optimization on program."""
+        """Run GEPA optimization on program.
+
+        DSPy 3.4 removed enable_tool_optimization. ReAct embeds each tool in the
+        react predictor's instructions, and GEPA optimizes that instruction text.
+        component_selector="all" still proposes every predictor each iteration.
+        """
         optimizer = GEPA(
             metric=self.metric,
             reflection_lm=self.reflection_lm,
@@ -197,7 +202,6 @@ class BrowseCompEvaluator:
             num_threads=self.args.num_threads,
             track_stats=True,
             track_best_outputs=True,
-            enable_tool_optimization=True,
             component_selector="all",
         )
         
