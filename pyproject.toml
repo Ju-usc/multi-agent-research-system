@@ -14,6 +14,8 @@ dependencies = [
     "datasets>=4.4.2",
     "fastmcp>=2.9.0",
     "rich>=13.0.0",
+    # Exact pin: 1.107.0 is a malicious PyPI release (GHSA-92x9-889m-jgmw).
+    "litellm==1.106.2",
 ]
 
 [dependency-groups]
