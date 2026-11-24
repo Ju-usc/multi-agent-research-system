@@ -11,7 +11,7 @@ dependencies = [
     "pytest",
     "pandas",
     "parallel-web",
-    "datasets>=4.4.2",
+    "datasets>=5.0.1",
     "fastmcp>=2.9.0",
     "rich>=13.0.0",
 ]
